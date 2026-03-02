@@ -1,0 +1,7 @@
+{
+  "name": "Orchestra Score Gateway",
+  "description": "A secure access management system for orchestra members to view scores during rehearsal times or via temporary administrative grants.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
