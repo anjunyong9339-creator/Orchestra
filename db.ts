@@ -47,7 +47,7 @@ let dbCache: Record<string, any> = { ...LOCAL_DEFAULTS };
 // Helper to fetch data from server
 const fetchFromServer = async (key: string) => {
   try {
-    const response = await fetch(`${window.location.origin}/api/data/${key}`);
+    const response = await fetch(`/api/data/${key}`);
     if (response.ok) {
       const data = await response.json();
       if (data) {
@@ -65,7 +65,7 @@ const fetchFromServer = async (key: string) => {
 const saveToServer = async (key: string, data: any) => {
   dbCache[key] = data; // Update cache immediately
   try {
-    await fetch(`${window.location.origin}/api/data/${key}`, {
+    await fetch(`/api/data/${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
