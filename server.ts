@@ -72,51 +72,64 @@ const saveData = (name: string, data: any) => {
 };
 
 async function startServer() {
-  try {
-    const app = express();
-    const PORT = 3000;
+  const app = express();
+  const PORT = 3000;
 
-    app.use(cors());
-    app.use(express.json({ limit: '50mb' }));
+  app.use(cors());
+  app.use(express.json({ limit: '50mb' }));
 
-    // API Routes
-    app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+  // API Routes - Define these immediately
+  app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-    app.get("/api/data/:name", (req, res) => {
+  app.get("/api/data/:name", (req, res) => {
+    try {
       const { name } = req.params;
       const data = readData(name);
       res.json(data);
-    });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
 
-    app.post("/api/data/:name", (req, res) => {
+  app.post("/api/data/:name", (req, res) => {
+    try {
       const { name } = req.params;
       saveData(name, req.body);
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  const isProd = process.env.NODE_ENV === "production" || fs.existsSync(path.join(__dirname, "dist"));
+
+  if (isProd) {
+    console.log("Production mode: Serving static files");
+    app.use(express.static(path.join(__dirname, "dist")));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(__dirname, "dist", "index.html"));
     });
-
-    const isProd = process.env.NODE_ENV === "production" || fs.existsSync(path.join(__dirname, "dist"));
-
-    if (isProd) {
-      app.use(express.static(path.join(__dirname, "dist")));
-      app.get("*", (req, res) => {
-        res.sendFile(path.join(__dirname, "dist", "index.html"));
-      });
-    } else {
+  } else {
+    console.log("Development mode: Starting Vite");
+    try {
       const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
       });
       app.use(vite.middlewares);
+    } catch (e) {
+      console.error("Failed to start Vite:", e);
+      // Fallback: try to serve dist even if not in prod mode
+      if (fs.existsSync(path.join(__dirname, "dist"))) {
+        app.use(express.static(path.join(__dirname, "dist")));
+      }
     }
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://0.0.0.0:${PORT}`);
-    });
-  } catch (error) {
-    console.error("Failed to start server:", error);
-    process.exit(1);
   }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server is listening on port ${PORT}`);
+  });
 }
 
 startServer();

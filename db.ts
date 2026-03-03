@@ -52,13 +52,13 @@ const fetchFromServer = async (key: string) => {
     const response = await fetch(`/api/data/${key}`);
     if (response.ok) {
       const data = await response.json();
-      if (data) {
+      if (data && !data.error) {
         dbCache[key] = data;
         return data;
       }
     }
   } catch (e) {
-    console.error(`Error fetching ${key} from server:`, e);
+    console.warn(`Server unreachable for ${key}, using local cache.`);
   }
   return dbCache[key];
 };
@@ -75,9 +75,13 @@ const saveToServer = async (key: string, data: any) => {
     });
     if (response.ok) {
       lastSyncTime = Date.now();
+      // Also update localStorage as a backup
+      localStorage.setItem(key, JSON.stringify(data));
     }
   } catch (e) {
     console.error(`Error saving ${key} to server:`, e);
+    // Fallback to localStorage
+    localStorage.setItem(key, JSON.stringify(data));
   } finally {
     isSyncing = false;
   }
