@@ -3,12 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { User, AuthState } from './types';
 import { 
   getStoredUsers, saveUsers, isAccessAllowed, getScoreForInstrument, 
-  getInstrumentName, getStoredScores, getStoredInstruments, addAccessLog 
+  getInstrumentName, getStoredScores, getStoredInstruments, addAccessLog,
+  initDB
 } from './db';
 import LoginPage from './components/LoginPage';
 import MemberDashboard from './components/MemberDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import { Lock, Music, ShieldCheck, LogOut, LayoutDashboard, ShieldAlert, X, Fingerprint, Info } from 'lucide-react';
+import { Lock, Music, ShieldCheck, LogOut, LayoutDashboard, ShieldAlert, X, Fingerprint, Info, Loader2 } from 'lucide-react';
 
 // 관리자 마스터 코드
 const ADMIN_PASSCODE = '2479';
@@ -24,13 +25,47 @@ const App: React.FC = () => {
   const [passcodeInput, setPasscodeInput] = useState('');
   const [passcodeError, setPasscodeError] = useState(false);
   const [showPasscodeModal, setShowPasscodeModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('orchestra_session');
-    if (savedSession) {
-      setAuth({ user: JSON.parse(savedSession), isAuthenticated: true });
-    }
+    const initialize = async () => {
+      await initDB();
+      const savedSession = localStorage.getItem('orchestra_session');
+      if (savedSession) {
+        const user = JSON.parse(savedSession);
+        // Refresh user data from server to ensure session is still valid/updated
+        const users = getStoredUsers();
+        const updatedUser = users.find(u => u.id === user.id);
+        if (updatedUser) {
+          setAuth({ user: updatedUser, isAuthenticated: true });
+        } else {
+          localStorage.removeItem('orchestra_session');
+        }
+      }
+      setIsLoading(false);
+    };
+    initialize();
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 flex flex-col items-center max-w-sm w-full">
+          <div className="relative mb-8">
+            <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full scale-150 animate-pulse"></div>
+            <div className="bg-indigo-600 p-6 rounded-3xl shadow-xl shadow-indigo-200 relative z-10 animate-bounce">
+              <Music className="text-white w-10 h-10" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-black italic text-slate-900 mb-2 tracking-tighter uppercase">SCORE GATEWAY</h2>
+          <div className="flex items-center gap-3 text-slate-400 font-bold text-sm tracking-widest uppercase">
+            <Loader2 className="animate-spin w-4 h-4" />
+            데이터 동기화 중...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleLogin = (userId: string, pass: string) => {
     const users = getStoredUsers();

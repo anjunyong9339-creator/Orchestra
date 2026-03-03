@@ -17,10 +17,28 @@ const MemberDashboard: React.FC<Props> = ({ user, onOpenScores, onGoToAdmin }) =
   const [vacation, setVacation] = useState<VacationPeriod>({ startDate: '', endDate: '', isActive: false });
 
   useEffect(() => {
-    setAnnouncements(getStoredAnnouncements());
-    setSchedule(getStoredRehearsalSchedule());
-    setVacation(getStoredVacationPeriod());
+    const loadData = async () => {
+      const [a, s, v] = await Promise.all([
+        getStoredAnnouncements(),
+        getStoredRehearsalSchedule(),
+        getStoredVacationPeriod()
+      ]);
+      setAnnouncements(a);
+      setSchedule(s);
+      setVacation(v);
+    };
+    loadData();
   }, []);
+
+  const [instrumentName, setInstrumentName] = useState(user.instrument);
+
+  useEffect(() => {
+    const loadInstName = async () => {
+      const name = await getInstrumentName(user.instrument);
+      setInstrumentName(name);
+    };
+    loadInstName();
+  }, [user.instrument]);
 
   const now = new Date();
   const day = now.getDay();
@@ -55,7 +73,7 @@ const MemberDashboard: React.FC<Props> = ({ user, onOpenScores, onGoToAdmin }) =
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 mb-1">환영합니다, {user.name}님!</h2>
-          <p className="text-slate-500">역할: <span className="font-medium text-slate-700">{user.role === 'admin' ? '관리자' : '단원'}</span> | 악기: <span className="font-medium text-slate-700">{getInstrumentName(user.instrument)}</span></p>
+          <p className="text-slate-500">역할: <span className="font-medium text-slate-700">{user.role === 'admin' ? '관리자' : '단원'}</span> | 악기: <span className="font-medium text-slate-700">{instrumentName}</span></p>
         </div>
         {user.role === 'admin' && (
           <div className="hidden sm:block">

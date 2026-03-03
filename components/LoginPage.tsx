@@ -1,11 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Music, Lock, User as UserIcon, UserPlus, ArrowLeft, ChevronDown } from 'lucide-react';
 import { registerUser, getStoredInstruments, getStoredTranslations } from '../db';
 import { Instrument } from '../types';
 
 interface Props {
-  onLogin: (id: string, pass: string) => void;
+  onLogin: (id: string, pass: string) => Promise<void>;
 }
 
 const LoginPage: React.FC<Props> = ({ onLogin }) => {
@@ -22,34 +22,57 @@ const LoginPage: React.FC<Props> = ({ onLogin }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [registeredPasscode, setRegisteredPasscode] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const instruments = getStoredInstruments();
-  const translations = getStoredTranslations();
+  const [instruments, setInstruments] = useState<Instrument[]>([]);
+  const [translations, setTranslations] = useState<Record<string, string>>({});
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const loadData = async () => {
+      const [i, t] = await Promise.all([
+        getStoredInstruments(),
+        getStoredTranslations()
+      ]);
+      setInstruments(i);
+      setTranslations(t);
+    };
+    loadData();
+  }, []);
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin(userId, password);
+    setIsSubmitting(true);
+    try {
+      await onLogin(userId, password);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSignupSubmit = (e: React.FormEvent) => {
+  const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       alert('비밀번호가 일치하지 않습니다.');
       return;
     }
 
-    const result = registerUser({
-      id: newId,
-      name: newName,
-      password: newPassword,
-      instrument: newInstrument
-    });
+    setIsSubmitting(true);
+    try {
+      const result = await registerUser({
+        id: newId,
+        name: newName,
+        password: newPassword,
+        instrument: newInstrument
+      });
 
-    if (result.success && result.passcode) {
-      setRegisteredPasscode(result.passcode);
-      setUserId(newId);
-    } else {
-      alert(result.message);
+      if (result.success && result.passcode) {
+        setRegisteredPasscode(result.passcode);
+        setUserId(newId);
+      } else {
+        alert(result.message);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -139,9 +162,10 @@ const LoginPage: React.FC<Props> = ({ onLogin }) => {
               
               <button 
                 type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95"
+                disabled={isSubmitting}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95 disabled:opacity-50"
               >
-                로그인
+                {isSubmitting ? '로그인 중...' : '로그인'}
               </button>
 
               <div className="pt-6 border-t border-slate-100 text-center">
@@ -224,9 +248,10 @@ const LoginPage: React.FC<Props> = ({ onLogin }) => {
 
               <button 
                 type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95 mt-2"
+                disabled={isSubmitting}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95 mt-2 disabled:opacity-50"
               >
-                계정 생성
+                {isSubmitting ? '처리 중...' : '계정 생성'}
               </button>
 
               <button 

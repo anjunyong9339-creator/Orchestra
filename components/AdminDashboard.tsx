@@ -83,18 +83,28 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    setUsers(getStoredUsers());
-    setScores(getStoredScores());
-    setAnnouncements(getStoredAnnouncements());
-    setInstruments(getStoredInstruments());
-    setTranslations(getStoredTranslations());
-    setRehearsalSchedule(getStoredRehearsalSchedule());
-    setVacationPeriod(getStoredVacationPeriod());
-    setAccessLogs(getStoredAccessLogs());
+  const loadData = async () => {
+    const [u, s, a, i, t, rs, vp, al] = await Promise.all([
+      getStoredUsers(),
+      getStoredScores(),
+      getStoredAnnouncements(),
+      getStoredInstruments(),
+      getStoredTranslations(),
+      getStoredRehearsalSchedule(),
+      getStoredVacationPeriod(),
+      getStoredAccessLogs()
+    ]);
+    setUsers(u);
+    setScores(s);
+    setAnnouncements(a);
+    setInstruments(i);
+    setTranslations(t);
+    setRehearsalSchedule(rs);
+    setVacationPeriod(vp);
+    setAccessLogs(al);
   };
 
-  const handleAddSchedule = () => {
+  const handleAddSchedule = async () => {
     const newSlot: RehearsalSchedule = {
       id: Math.random().toString(36).substr(2, 9),
       dayOfWeek: newScheduleDay,
@@ -102,31 +112,31 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
       endTime: newScheduleEnd
     };
     const updated = [...rehearsalSchedule, newSlot];
-    saveRehearsalSchedule(updated);
+    await saveRehearsalSchedule(updated);
     setRehearsalSchedule(updated);
     setSuccessMessage('정기 연습 시간이 추가되었습니다.');
     setShowSuccessModal(true);
   };
 
-  const handleDeleteSchedule = (id: string) => {
+  const handleDeleteSchedule = async (id: string) => {
     const updated = rehearsalSchedule.filter(s => s.id !== id);
-    saveRehearsalSchedule(updated);
+    await saveRehearsalSchedule(updated);
     setRehearsalSchedule(updated);
   };
 
-  const handleSaveVacation = () => {
-    saveVacationPeriod(vacationPeriod);
+  const handleSaveVacation = async () => {
+    await saveVacationPeriod(vacationPeriod);
     setSuccessMessage('방학 기간 설정이 저장되었습니다.');
     setShowSuccessModal(true);
   };
 
-  const handleAddPart = (e: React.FormEvent) => {
+  const handleAddPart = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPartName) return;
     
-    addInstrument(newPartName);
+    await addInstrument(newPartName);
     setNewPartName('');
-    loadData();
+    await loadData();
     setSuccessMessage(`새로운 파트(${newPartName})가 추가되었습니다.`);
     setShowSuccessModal(true);
   };
@@ -140,43 +150,43 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
     setShowPartDeleteConfirm(true);
   };
 
-  const confirmDeletePart = () => {
+  const confirmDeletePart = async () => {
     if (!partToDelete) return;
-    deleteInstrument(partToDelete);
-    loadData();
+    await deleteInstrument(partToDelete);
+    await loadData();
     setShowPartDeleteConfirm(false);
     setPartToDelete(null);
     setSuccessMessage('파트가 삭제되었습니다.');
     setShowSuccessModal(true);
   };
-  const handleToggleRole = (user: User) => {
+  const handleToggleRole = async (user: User) => {
     if (user.id === 'admin') return;
-    updateUser(user.id, { role: user.role === 'admin' ? 'member' : 'admin' });
-    loadData();
+    await updateUser(user.id, { role: user.role === 'admin' ? 'member' : 'admin' });
+    await loadData();
   };
 
-  const handleRevokeAccess = (userId: string) => {
-    updateUser(userId, { 
+  const handleRevokeAccess = async (userId: string) => {
+    await updateUser(userId, { 
       temp_access_from: null,
       temp_access_until: null,
       other_parts_access_until: null,
       allowed_other_parts: []
     });
-    loadData();
+    await loadData();
   };
 
-  const handleApproveOtherParts = (isPermanent: boolean) => {
+  const handleApproveOtherParts = async (isPermanent: boolean) => {
     if (!selectedUser || selectedParts.length === 0) return;
     
     const expiry = isPermanent 
       ? new Date('2099-12-31T23:59:59Z').toISOString()
       : new Date(Date.now() + 60 * 60 * 1000).toISOString();
       
-    updateUser(selectedUser.id, { 
+    await updateUser(selectedUser.id, { 
       other_parts_access_until: expiry,
       allowed_other_parts: selectedParts
     });
-    loadData();
+    await loadData();
     setShowOtherPartsModal(false);
     setSelectedUser(null);
     setSelectedParts([]);
@@ -198,7 +208,7 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
     setShowDeleteConfirm(true);
   };
 
-  const confirmBulkDelete = () => {
+  const confirmBulkDelete = async () => {
     const idsToDelete = selectedUserIds.filter(id => id !== 'admin');
     if (idsToDelete.length === 0) {
       alert('삭제할 수 있는 단원이 없습니다 (관리자 계정 제외).');
@@ -206,9 +216,9 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
       return;
     }
     
-    idsToDelete.forEach(id => deleteUser(id));
+    await Promise.all(idsToDelete.map(id => deleteUser(id)));
     setSelectedUserIds([]);
-    loadData();
+    await loadData();
     setSuccessMessage(`${idsToDelete.length}명의 단원이 명단에서 삭제되었습니다.`);
     setShowSuccessModal(true);
     setShowDeleteConfirm(false);
@@ -230,7 +240,7 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
     }
   };
 
-  const handleScheduleAccess = (e: React.FormEvent) => {
+  const handleScheduleAccess = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scheduleEnd) return;
     if (!isBulkSchedule && !selectedUser) return;
@@ -245,19 +255,19 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
         ? (selectedUserIds.length > 0 ? selectedUserIds : filteredUsers.map(u => u.id)).filter(id => id !== 'admin')
         : [selectedUser!.id];
 
-      targetIds.forEach(id => {
+      await Promise.all(targetIds.map(async (id) => {
         const user = users.find(u => u.id === id);
         if (!user) return;
         
-        updateUser(id, { 
+        await updateUser(id, { 
           temp_access_from: start,
           temp_access_until: end,
           other_parts_access_until: includeOtherParts ? end : user.other_parts_access_until,
           allowed_other_parts: includeOtherParts ? selectedParts : user.allowed_other_parts
         });
-      });
+      }));
 
-      loadData();
+      await loadData();
       setShowScheduleModal(false);
       setSelectedUser(null);
       setScheduleStart('');
@@ -274,7 +284,7 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
     }
   };
 
-  const handleBulkRevokeAccess = () => {
+  const handleBulkRevokeAccess = async () => {
     const targets = selectedUserIds.length > 0 ? selectedUserIds : filteredUsers.map(u => u.id);
     const idsToRevoke = targets.filter(id => id !== 'admin');
     
@@ -283,23 +293,23 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
       return;
     }
     
-    idsToRevoke.forEach(id => {
+    await Promise.all(idsToRevoke.map(id => 
       updateUser(id, { 
         temp_access_from: null,
         temp_access_until: null,
         other_parts_access_until: null,
         allowed_other_parts: []
-      });
-    });
+      })
+    ));
     
-    loadData();
+    await loadData();
     setSuccessMessage(`${idsToRevoke.length}명의 권한을 모두 회수했습니다.`);
     setShowSuccessModal(true);
   };
 
-  const handleAddMember = (e: React.FormEvent) => {
+  const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentUsers = getStoredUsers();
+    const currentUsers = await getStoredUsers();
     if (currentUsers.some(u => u.id === newMember.id)) {
       alert('이미 존재하는 ID입니다.');
       return;
@@ -312,13 +322,13 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
       temp_access_until: null, 
       joined_at: new Date().toISOString() 
     };
-    saveUsers([...currentUsers, newUser]);
-    loadData();
+    await saveUsers([...currentUsers, newUser]);
+    await loadData();
     setShowAddMember(false);
     setNewMember({ id: '', name: '', instrument: 'Sogeum', password: '1234' });
   };
 
-  const handleSaveAnnouncement = (e: React.FormEvent) => {
+  const handleSaveAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!announcementTitle || !announcementContent) return;
 
@@ -332,7 +342,7 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
 
     const updated = [newAnnouncement, ...announcements];
     setAnnouncements(updated);
-    saveAnnouncements(updated);
+    await saveAnnouncements(updated);
     
     setAnnouncementTitle('');
     setAnnouncementContent('');
@@ -347,14 +357,12 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
     setShowAnnouncementDeleteConfirm(true);
   };
 
-  const confirmDeleteAnnouncement = () => {
+  const confirmDeleteAnnouncement = async () => {
     if (!announcementToDelete) return;
     
-    setAnnouncements(prev => {
-      const updated = prev.filter(a => a.id !== announcementToDelete);
-      saveAnnouncements(updated);
-      return updated;
-    });
+    const updated = announcements.filter(a => a.id !== announcementToDelete);
+    setAnnouncements(updated);
+    await saveAnnouncements(updated);
     
     setSuccessMessage('공지사항이 삭제되었습니다.');
     setShowSuccessModal(true);
@@ -362,15 +370,15 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
     setAnnouncementToDelete(null);
   };
 
-  const handleDeleteLog = (id: string) => {
+  const handleDeleteLog = async (id: string) => {
     const updated = accessLogs.filter(log => log.id !== id);
-    saveAccessLogs(updated);
+    await saveAccessLogs(updated);
     setAccessLogs(updated);
   };
 
-  const handleClearAllLogs = () => {
+  const handleClearAllLogs = async () => {
     if (window.confirm('모든 열람 로그를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
-      saveAccessLogs([]);
+      await saveAccessLogs([]);
       setAccessLogs([]);
       setSuccessMessage('모든 로그가 초기화되었습니다.');
       setShowSuccessModal(true);
@@ -384,7 +392,7 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
   });
 
   // Stats
-  const activeAccessCount = users.filter(u => isAccessAllowed(u).allowed).length;
+  const activeAccessCount = users.filter(u => isAccessAllowed(u, vacationPeriod, rehearsalSchedule).allowed).length;
 
   const filteredLogs = accessLogs.filter(log => {
     const matchesDate = !logFilterDate || log.accessedAt.startsWith(logFilterDate);
@@ -614,7 +622,7 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {filteredUsers.map(user => {
-                  const { allowed } = isAccessAllowed(user);
+                  const { allowed } = isAccessAllowed(user, vacationPeriod, rehearsalSchedule);
                   const hasOtherPartsAccess = user.other_parts_access_until && new Date(user.other_parts_access_until) > new Date();
                   const isSelected = selectedUserIds.includes(user.id);
                   
@@ -751,8 +759,8 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
             </div>
           </div>
           <button 
-            onClick={() => { 
-              saveScores(scores); 
+            onClick={async () => { 
+              await saveScores(scores); 
               setSuccessMessage('악보 자산 설정이 성공적으로 저장되었습니다.');
               setShowSuccessModal(true);
             }}
@@ -1130,78 +1138,76 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
       <div className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">날짜 필터</label>
-          <div className="relative h-[46px] bg-slate-50 border border-slate-100 rounded-xl overflow-hidden flex items-center">
-            {/* Custom Display Text (Behind the input) */}
-            <div className="absolute inset-0 pl-12 pr-10 flex items-center pointer-events-none z-0">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <span className={`text-xs font-bold ${logFilterDate ? 'text-slate-900' : 'text-slate-400'}`}>
-                {logFilterDate ? formatDateFilter(logFilterDate) : '날짜 선택'}
-              </span>
-            </div>
+          <div className="relative h-[46px] bg-slate-50 border border-slate-100 rounded-xl flex items-center group hover:border-blue-300 transition-colors">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-blue-500 transition-colors" size={16} />
             
-            {/* Real Input - Visible but text is transparent, covers the whole area */}
+            <span className={`absolute left-12 right-10 top-1/2 -translate-y-1/2 text-xs font-bold pointer-events-none ${logFilterDate ? 'text-slate-900' : 'text-slate-400'}`}>
+              {logFilterDate ? formatDateFilter(logFilterDate) : '날짜 선택'}
+            </span>
+            
             <input 
               type="date"
               value={logFilterDate}
               onChange={e => setLogFilterDate(e.target.value)}
               onClick={(e) => {
-                try { (e.target as any).showPicker(); } catch (err) {}
+                try { (e.currentTarget as any).showPicker(); } catch (err) {}
               }}
-              className="w-full h-full bg-transparent border-none outline-none pl-12 pr-10 text-xs font-bold cursor-pointer relative z-10 text-transparent select-none"
+              onFocus={(e) => {
+                try { (e.currentTarget as any).showPicker(); } catch (err) {}
+              }}
+              className="w-full h-full opacity-0 cursor-pointer absolute inset-0 z-10"
               style={{ colorScheme: 'light' }}
             />
 
-            {/* Clear Button - Higher z-index */}
             {logFilterDate && (
               <button 
                 type="button"
-                onMouseDown={(e) => {
+                onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   setLogFilterDate('');
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600 z-20 p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-red-500 z-20 p-1 transition-colors"
               >
-                <XCircle size={14} />
+                <XCircle size={16} />
               </button>
             )}
           </div>
         </div>
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">시간 필터</label>
-          <div className="relative h-[46px] bg-slate-50 border border-slate-100 rounded-xl overflow-hidden flex items-center">
-            {/* Custom Display Text (Behind the input) */}
-            <div className="absolute inset-0 pl-12 pr-10 flex items-center pointer-events-none z-0">
-              <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <span className={`text-xs font-bold ${logFilterTime ? 'text-slate-900' : 'text-slate-400'}`}>
-                {logFilterTime ? formatTimeFilter(logFilterTime) : '시간 선택'}
-              </span>
-            </div>
+          <div className="relative h-[46px] bg-slate-50 border border-slate-100 rounded-xl flex items-center group hover:border-blue-300 transition-colors">
+            <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-blue-500 transition-colors" size={16} />
             
-            {/* Real Input - Visible but text is transparent, covers the whole area */}
+            <span className={`absolute left-12 right-10 top-1/2 -translate-y-1/2 text-xs font-bold pointer-events-none ${logFilterTime ? 'text-slate-900' : 'text-slate-400'}`}>
+              {logFilterTime ? formatTimeFilter(logFilterTime) : '시간 선택'}
+            </span>
+            
             <input 
               type="time"
               value={logFilterTime}
               onChange={e => setLogFilterTime(e.target.value)}
               onClick={(e) => {
-                try { (e.target as any).showPicker(); } catch (err) {}
+                try { (e.currentTarget as any).showPicker(); } catch (err) {}
               }}
-              className="w-full h-full bg-transparent border-none outline-none pl-12 pr-10 text-xs font-bold cursor-pointer relative z-10 text-transparent select-none"
+              onFocus={(e) => {
+                try { (e.currentTarget as any).showPicker(); } catch (err) {}
+              }}
+              className="w-full h-full opacity-0 cursor-pointer absolute inset-0 z-10"
               style={{ colorScheme: 'light' }}
             />
 
-            {/* Clear Button - Higher z-index */}
             {logFilterTime && (
               <button 
                 type="button"
-                onMouseDown={(e) => {
+                onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   setLogFilterTime('');
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600 z-20 p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-red-500 z-20 p-1 transition-colors"
               >
-                <XCircle size={14} />
+                <XCircle size={16} />
               </button>
             )}
           </div>
@@ -1609,7 +1615,7 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">현재 상태</p>
                   {(() => {
-                    const { allowed } = isAccessAllowed(userDetailUser);
+                    const { allowed } = isAccessAllowed(userDetailUser, vacationPeriod, rehearsalSchedule);
                     return (
                       <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${allowed ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${allowed ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>

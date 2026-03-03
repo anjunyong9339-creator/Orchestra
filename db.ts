@@ -1,57 +1,75 @@
 
 import { User, Score, Instrument, Announcement, RehearsalSchedule, VacationPeriod, AccessLog } from './types';
 
-const INITIAL_USERS: User[] = [
-  { id: 'admin', name: 'Admin User', password: 'admin-password', passcode: '000000', instrument: 'Piano', role: 'admin', temp_access_until: null, joined_at: new Date('2024-01-01').toISOString() },
-  { id: 'haegeum1', name: '김해금', password: '1234', passcode: '123456', instrument: 'Haegeum', role: 'member', temp_access_until: null, joined_at: new Date('2024-02-15').toISOString() },
-  { id: 'cello1', name: '이첼로', password: '1234', passcode: '654321', instrument: 'Cello', role: 'member', temp_access_until: null, joined_at: new Date('2024-03-10').toISOString() },
-];
-
 const INSTRUMENTS_KEY = 'orchestra_gateway_instruments';
 const TRANSLATIONS_KEY = 'orchestra_gateway_translations';
 const REHEARSAL_SCHEDULE_KEY = 'orchestra_gateway_rehearsal_schedule';
 const VACATION_PERIOD_KEY = 'orchestra_gateway_vacation_period';
 const ACCESS_LOGS_KEY = 'orchestra_gateway_access_logs';
+const USERS_KEY = 'orchestra_gateway_users';
+const SCORES_KEY = 'orchestra_gateway_scores';
+const ANNOUNCEMENTS_KEY = 'orchestra_gateway_announcements';
 
-const DEFAULT_REHEARSAL_SCHEDULE: RehearsalSchedule[] = [
-  { id: 'tue', dayOfWeek: 2, startTime: '18:00', endTime: '23:00' },
-  { id: 'sat', dayOfWeek: 6, startTime: '10:00', endTime: '18:00' }
-];
+// Cache for synchronous access
+let dbCache: Record<string, any> = {};
 
-const DEFAULT_VACATION_PERIOD: VacationPeriod = {
-  startDate: '',
-  endDate: '',
-  isActive: false
+// Helper to fetch data from server
+const fetchFromServer = async (key: string) => {
+  try {
+    const response = await fetch(`/api/data/${key}`);
+    if (response.ok) {
+      const data = await response.json();
+      dbCache[key] = data;
+      return data;
+    }
+  } catch (e) {
+    console.error(`Error fetching ${key} from server:`, e);
+  }
+  return null;
 };
 
-const DEFAULT_INSTRUMENTS: Instrument[] = [
-  'FullScore', 'Sogeum', 'Daegeum', 'Piri', 'Daepiri', 'Saenghwang', 
-  'Taepyeongso', 'Haegeum', 'Ajaeng', 'Gayageum', 'Geumungo', 
-  'Yanggeum', 'Percussion', 'Piano', 'Flute', 'Panflute', 'Cello'
-];
+// Helper to save data to server
+const saveToServer = async (key: string, data: any) => {
+  dbCache[key] = data; // Update cache immediately
+  try {
+    await fetch(`/api/data/${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  } catch (e) {
+    console.error(`Error saving ${key} to server:`, e);
+  }
+};
 
-const DEFAULT_TRANSLATIONS: Record<string, string> = {
-  'Sogeum': '소금', 'Daegeum': '대금', 'Piri': '피리', 'Daepiri': '대피리', 'Saenghwang': '생황',
-  'Taepyeongso': '태평소', 'Haegeum': '해금', 'Ajaeng': '아쟁', 'Gayageum': '가야금', 'Geumungo': '거문고',
-  'Yanggeum': '양금', 'Percussion': '타악', 'Piano': '피아노', 'Flute': '플룻', 'Panflute': '팬플룻', 'Cello': '첼로', 'FullScore': '총보(스코어)'
+// Initialization function to be called at app start
+export const initDB = async () => {
+  const keys = [
+    INSTRUMENTS_KEY, TRANSLATIONS_KEY, REHEARSAL_SCHEDULE_KEY, 
+    VACATION_PERIOD_KEY, ACCESS_LOGS_KEY, USERS_KEY, 
+    SCORES_KEY, ANNOUNCEMENTS_KEY
+  ];
+  await Promise.all(keys.map(key => fetchFromServer(key)));
+  
+  // Refresh exported variables
+  INSTRUMENTS = getStoredInstruments();
+  instrumentTranslation = getStoredTranslations();
 };
 
 export const getStoredInstruments = (): Instrument[] => {
-  const stored = localStorage.getItem(INSTRUMENTS_KEY);
-  return stored ? JSON.parse(stored) : DEFAULT_INSTRUMENTS;
+  return dbCache[INSTRUMENTS_KEY] || [];
 };
 
 export const saveInstruments = (instruments: Instrument[]) => {
-  localStorage.setItem(INSTRUMENTS_KEY, JSON.stringify(instruments));
+  saveToServer(INSTRUMENTS_KEY, instruments);
 };
 
 export const getStoredTranslations = (): Record<string, string> => {
-  const stored = localStorage.getItem(TRANSLATIONS_KEY);
-  return stored ? JSON.parse(stored) : DEFAULT_TRANSLATIONS;
+  return dbCache[TRANSLATIONS_KEY] || {};
 };
 
 export const saveTranslations = (translations: Record<string, string>) => {
-  localStorage.setItem(TRANSLATIONS_KEY, JSON.stringify(translations));
+  saveToServer(TRANSLATIONS_KEY, translations);
 };
 
 export const getInstrumentName = (id: string): string => {
@@ -59,33 +77,24 @@ export const getInstrumentName = (id: string): string => {
   return translations[id] || id;
 };
 
-// Re-exporting for compatibility but they should be used as functions now
 export let INSTRUMENTS = getStoredInstruments();
 export let instrumentTranslation = getStoredTranslations();
-
-// Helper to refresh the exported variables
-const refreshExports = () => {
-  INSTRUMENTS = getStoredInstruments();
-  instrumentTranslation = getStoredTranslations();
-};
 
 export const addInstrument = (name: string) => {
   const instruments = getStoredInstruments();
   const translations = getStoredTranslations();
-  const id = name; // Use name as ID as requested
+  const id = name;
   
-  if (!instruments.includes(id)) {
-    instruments.push(id);
+  if (!instruments.includes(id as Instrument)) {
+    instruments.push(id as Instrument);
     translations[id] = name;
     saveInstruments(instruments);
     saveTranslations(translations);
-    refreshExports();
     
-    // Also add a default score for it
     const scores = getStoredScores();
     if (!scores.some(s => s.instrument === id)) {
       scores.push({
-        instrument: id,
+        instrument: id as Instrument,
         notion_url: `https://notion.so/orchestra/${encodeURIComponent(id.toLowerCase())}-scores`
       });
       saveScores(scores);
@@ -102,58 +111,43 @@ export const deleteInstrument = (id: string) => {
     saveInstruments(filtered);
     delete translations[id];
     saveTranslations(translations);
-    refreshExports();
     
-    // Also delete the score for it
     const scores = getStoredScores();
     const filteredScores = scores.filter(s => s.instrument !== id);
     saveScores(filteredScores);
   }
 };
 
-const INITIAL_SCORES: Score[] = DEFAULT_INSTRUMENTS.map(inst => ({
-  instrument: inst,
-  notion_url: `https://notion.so/orchestra/${inst.toLowerCase().replace(' ', '-')}-scores`
-}));
-
-const USERS_KEY = 'orchestra_gateway_users';
-const SCORES_KEY = 'orchestra_gateway_scores';
-const ANNOUNCEMENTS_KEY = 'orchestra_gateway_announcements';
-
 export const getStoredAnnouncements = (): Announcement[] => {
-  const stored = localStorage.getItem(ANNOUNCEMENTS_KEY);
-  return stored ? JSON.parse(stored) : [];
+  return dbCache[ANNOUNCEMENTS_KEY] || [];
 };
 
 export const saveAnnouncements = (announcements: Announcement[]) => {
-  localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(announcements));
+  saveToServer(ANNOUNCEMENTS_KEY, announcements);
 };
 
 export const getStoredRehearsalSchedule = (): RehearsalSchedule[] => {
-  const stored = localStorage.getItem(REHEARSAL_SCHEDULE_KEY);
-  return stored ? JSON.parse(stored) : DEFAULT_REHEARSAL_SCHEDULE;
+  return dbCache[REHEARSAL_SCHEDULE_KEY] || [];
 };
 
 export const saveRehearsalSchedule = (schedule: RehearsalSchedule[]) => {
-  localStorage.setItem(REHEARSAL_SCHEDULE_KEY, JSON.stringify(schedule));
+  saveToServer(REHEARSAL_SCHEDULE_KEY, schedule);
 };
 
 export const getStoredVacationPeriod = (): VacationPeriod => {
-  const stored = localStorage.getItem(VACATION_PERIOD_KEY);
-  return stored ? JSON.parse(stored) : DEFAULT_VACATION_PERIOD;
+  return dbCache[VACATION_PERIOD_KEY] || { startDate: '', endDate: '', isActive: false };
 };
 
 export const saveVacationPeriod = (period: VacationPeriod) => {
-  localStorage.setItem(VACATION_PERIOD_KEY, JSON.stringify(period));
+  saveToServer(VACATION_PERIOD_KEY, period);
 };
 
 export const getStoredAccessLogs = (): AccessLog[] => {
-  const stored = localStorage.getItem(ACCESS_LOGS_KEY);
-  return stored ? JSON.parse(stored) : [];
+  return dbCache[ACCESS_LOGS_KEY] || [];
 };
 
 export const saveAccessLogs = (logs: AccessLog[]) => {
-  localStorage.setItem(ACCESS_LOGS_KEY, JSON.stringify(logs));
+  saveToServer(ACCESS_LOGS_KEY, logs);
 };
 
 export const addAccessLog = (user: User, instrument: Instrument) => {
@@ -165,71 +159,26 @@ export const addAccessLog = (user: User, instrument: Instrument) => {
     instrument,
     accessedAt: new Date().toISOString()
   };
-  // Keep only last 1000 logs to avoid localStorage bloat
   const updatedLogs = [newLog, ...logs].slice(0, 1000);
   saveAccessLogs(updatedLogs);
 };
 
 export const getStoredUsers = (): User[] => {
-  const stored = localStorage.getItem(USERS_KEY);
-  if (!stored) return INITIAL_USERS;
-  
-  const users: User[] = JSON.parse(stored);
-  // Migration: Ensure all users have a passcode
-  let needsUpdate = false;
-  const migratedUsers = users.map(u => {
-    // Force admin passcode to '000000' as requested
-    if (u.id === 'admin' && u.passcode !== '000000') {
-      needsUpdate = true;
-      return { ...u, passcode: '000000' };
-    }
-    if (!u.passcode) {
-      needsUpdate = true;
-      return { ...u, passcode: Math.floor(100000 + Math.random() * 900000).toString() };
-    }
-    return u;
-  });
-
-  if (needsUpdate) {
-    saveUsers(migratedUsers);
-  }
-  
-  return migratedUsers;
+  return dbCache[USERS_KEY] || [];
 };
 
 export const saveUsers = (users: User[]) => {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  saveToServer(USERS_KEY, users);
 };
 
 export const getStoredScores = (): Score[] => {
-  const stored = localStorage.getItem(SCORES_KEY);
-  const scores: Score[] = stored ? JSON.parse(stored) : INITIAL_SCORES;
-  
-  // Ensure all instruments have a score entry (Migration for new instruments like FullScore)
-  let updated = false;
-  const currentInstruments = getStoredInstruments();
-  const finalScores = currentInstruments.map(inst => {
-    const existing = scores.find(s => s.instrument === inst);
-    if (existing) return existing;
-    updated = true;
-    return { 
-      instrument: inst, 
-      notion_url: `https://notion.so/orchestra/${inst.toLowerCase().replace(' ', '-')}-scores` 
-    };
-  });
-  
-  if (updated) {
-    saveScores(finalScores);
-  }
-  
-  return finalScores;
+  return dbCache[SCORES_KEY] || [];
 };
 
 export const saveScores = (scores: Score[]) => {
-  localStorage.setItem(SCORES_KEY, JSON.stringify(scores));
+  saveToServer(SCORES_KEY, scores);
 };
 
-// Added getScoreForInstrument to fix import error in App.tsx
 export const getScoreForInstrument = (instrument: Instrument): string => {
   const scores = getStoredScores();
   const score = scores.find(s => s.instrument === instrument);
@@ -240,7 +189,6 @@ export const registerUser = (userData: Omit<User, 'role' | 'temp_access_until' |
   const users = getStoredUsers();
   if (users.some(u => u.id === userData.id)) return { success: false, message: 'ID already exists.' };
   
-  // Generate 6-digit passcode
   const passcode = Math.floor(100000 + Math.random() * 900000).toString();
   
   const newUser: User = { 
@@ -275,10 +223,8 @@ export const isAccessAllowed = (user: User): { allowed: boolean; reason?: string
   const minute = now.getMinutes();
   const currentTimeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
   
-  // 1. 관리자 권한 체크 (최우선)
   if (user.role === 'admin') return { allowed: true, reason: 'Admin Privilege' };
 
-  // 2. 임시 접근 권한 체크 (관리자가 수동으로 부여한 권한)
   if (user.temp_access_until) {
     try {
       const until = new Date(user.temp_access_until);
@@ -297,7 +243,6 @@ export const isAccessAllowed = (user: User): { allowed: boolean; reason?: string
     }
   }
 
-  // 3. 방학 기간 체크 (정기 연습 시간 자동 승인을 차단)
   const vacation = getStoredVacationPeriod();
   if (vacation.isActive && vacation.startDate && vacation.endDate) {
     const start = new Date(vacation.startDate);
@@ -309,7 +254,6 @@ export const isAccessAllowed = (user: User): { allowed: boolean; reason?: string
     }
   }
 
-  // 4. 정기 연습 시간 체크
   const schedule = getStoredRehearsalSchedule();
   const isRehearsalTime = schedule.some(s => {
     if (s.dayOfWeek !== day) return false;
