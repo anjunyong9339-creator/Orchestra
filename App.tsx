@@ -4,12 +4,12 @@ import { User, AuthState } from './types';
 import { 
   getStoredUsers, saveUsers, isAccessAllowed, getScoreForInstrument, 
   getInstrumentName, getStoredScores, getStoredInstruments, addAccessLog,
-  initDB
+  initDB, getSyncStatus
 } from './db';
 import LoginPage from './components/LoginPage';
 import MemberDashboard from './components/MemberDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import { Lock, Music, ShieldCheck, LogOut, LayoutDashboard, ShieldAlert, X, Fingerprint, Info, Loader2 } from 'lucide-react';
+import { Lock, Music, ShieldCheck, LogOut, LayoutDashboard, ShieldAlert, X, Fingerprint, Info, Loader2, CloudCheck, CloudOff, RefreshCw } from 'lucide-react';
 
 // 관리자 마스터 코드
 const ADMIN_PASSCODE = '2479';
@@ -26,6 +26,7 @@ const App: React.FC = () => {
   const [passcodeError, setPasscodeError] = useState(false);
   const [showPasscodeModal, setShowPasscodeModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState(getSyncStatus());
 
   useEffect(() => {
     const initialize = async () => {
@@ -45,6 +46,11 @@ const App: React.FC = () => {
       setIsLoading(false);
     };
     initialize();
+
+    const syncInterval = setInterval(() => {
+      setSyncStatus(getSyncStatus());
+    }, 1000);
+    return () => clearInterval(syncInterval);
   }, []);
 
   if (isLoading) {
@@ -131,7 +137,7 @@ const App: React.FC = () => {
     }
   };
 
-  const extendAccess = (userId: string) => {
+  const extendAccess = async (userId: string) => {
     const users = getStoredUsers();
     const now = new Date();
     const expiry = new Date(now.getTime() + 60 * 60 * 1000); // 1시간 연장
@@ -144,7 +150,7 @@ const App: React.FC = () => {
       } : u
     );
     
-    saveUsers(updatedUsers);
+    await saveUsers(updatedUsers);
     
     if (auth.user?.id === userId) {
       const updatedUser = updatedUsers.find(u => u.id === userId);
@@ -264,6 +270,18 @@ const App: React.FC = () => {
         </div>
         
         <nav className="flex items-center gap-2 sm:gap-4">
+          {/* Sync Status */}
+          <div className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-100">
+            {syncStatus.isSyncing ? (
+              <RefreshCw className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+            ) : (
+              <CloudCheck className="w-3.5 h-3.5 text-emerald-500" />
+            )}
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+              {syncStatus.isSyncing ? 'Syncing' : 'Synced'}
+            </span>
+          </div>
+
           <button 
             onClick={() => setCurrentPage('home')}
             className={`px-4 py-2 rounded-xl flex items-center gap-2 transition font-bold text-sm ${currentPage === 'home' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}

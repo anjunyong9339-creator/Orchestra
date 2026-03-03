@@ -43,6 +43,8 @@ const LOCAL_DEFAULTS: Record<string, any> = {
 
 // Cache for synchronous access
 let dbCache: Record<string, any> = { ...LOCAL_DEFAULTS };
+let isSyncing = false;
+let lastSyncTime = 0;
 
 // Helper to fetch data from server
 const fetchFromServer = async (key: string) => {
@@ -58,20 +60,26 @@ const fetchFromServer = async (key: string) => {
   } catch (e) {
     console.error(`Error fetching ${key} from server:`, e);
   }
-  return dbCache[key]; // Return cached/default if fetch fails
+  return dbCache[key];
 };
 
 // Helper to save data to server
 const saveToServer = async (key: string, data: any) => {
-  dbCache[key] = data; // Update cache immediately
+  dbCache[key] = data;
+  isSyncing = true;
   try {
-    await fetch(`/api/data/${key}`, {
+    const response = await fetch(`/api/data/${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    if (response.ok) {
+      lastSyncTime = Date.now();
+    }
   } catch (e) {
     console.error(`Error saving ${key} to server:`, e);
+  } finally {
+    isSyncing = false;
   }
 };
 
@@ -94,11 +102,9 @@ export const initDB = async () => {
         const parsedLocal = JSON.parse(localData);
         const serverData = dbCache[key];
         
-        // If server data is just the default admin or empty, and local has more
         if (key === USERS_KEY) {
+          // If local has more users than server (excluding the default admin check)
           if (Array.isArray(parsedLocal) && parsedLocal.length > (Array.isArray(serverData) ? serverData.length : 0)) {
-            console.log(`Migrating ${key} to server...`);
-            // Merge users (keep server users, add local users that don't exist by ID)
             const merged = [...(Array.isArray(serverData) ? serverData : [])];
             parsedLocal.forEach((u: any) => {
               if (!merged.find(m => m.id === u.id)) {
@@ -121,22 +127,25 @@ export const initDB = async () => {
   // Refresh exported variables
   INSTRUMENTS = getStoredInstruments();
   instrumentTranslation = getStoredTranslations();
+  lastSyncTime = Date.now();
 };
+
+export const getSyncStatus = () => ({ isSyncing, lastSyncTime });
 
 export const getStoredInstruments = (): Instrument[] => {
   return dbCache[INSTRUMENTS_KEY] || LOCAL_DEFAULTS[INSTRUMENTS_KEY];
 };
 
-export const saveInstruments = (instruments: Instrument[]) => {
-  saveToServer(INSTRUMENTS_KEY, instruments);
+export const saveInstruments = async (instruments: Instrument[]) => {
+  await saveToServer(INSTRUMENTS_KEY, instruments);
 };
 
 export const getStoredTranslations = (): Record<string, string> => {
   return dbCache[TRANSLATIONS_KEY] || LOCAL_DEFAULTS[TRANSLATIONS_KEY];
 };
 
-export const saveTranslations = (translations: Record<string, string>) => {
-  saveToServer(TRANSLATIONS_KEY, translations);
+export const saveTranslations = async (translations: Record<string, string>) => {
+  await saveToServer(TRANSLATIONS_KEY, translations);
 };
 
 export const getInstrumentName = (id: string): string => {
@@ -147,7 +156,7 @@ export const getInstrumentName = (id: string): string => {
 export let INSTRUMENTS = getStoredInstruments();
 export let instrumentTranslation = getStoredTranslations();
 
-export const addInstrument = (name: string) => {
+export const addInstrument = async (name: string) => {
   const instruments = getStoredInstruments();
   const translations = getStoredTranslations();
   const id = name;
@@ -155,8 +164,8 @@ export const addInstrument = (name: string) => {
   if (!instruments.includes(id as Instrument)) {
     instruments.push(id as Instrument);
     translations[id] = name;
-    saveInstruments(instruments);
-    saveTranslations(translations);
+    await saveInstruments(instruments);
+    await saveTranslations(translations);
     
     const scores = getStoredScores();
     if (!scores.some(s => s.instrument === id)) {
@@ -164,24 +173,24 @@ export const addInstrument = (name: string) => {
         instrument: id as Instrument,
         notion_url: `https://notion.so/orchestra/${encodeURIComponent(id.toLowerCase())}-scores`
       });
-      saveScores(scores);
+      await saveScores(scores);
     }
   }
 };
 
-export const deleteInstrument = (id: string) => {
+export const deleteInstrument = async (id: string) => {
   const instruments = getStoredInstruments();
   const translations = getStoredTranslations();
   
   const filtered = instruments.filter(i => i !== id);
   if (filtered.length !== instruments.length) {
-    saveInstruments(filtered);
+    await saveInstruments(filtered);
     delete translations[id];
-    saveTranslations(translations);
+    await saveTranslations(translations);
     
     const scores = getStoredScores();
     const filteredScores = scores.filter(s => s.instrument !== id);
-    saveScores(filteredScores);
+    await saveScores(filteredScores);
   }
 };
 
@@ -189,35 +198,35 @@ export const getStoredAnnouncements = (): Announcement[] => {
   return dbCache[ANNOUNCEMENTS_KEY] || LOCAL_DEFAULTS[ANNOUNCEMENTS_KEY];
 };
 
-export const saveAnnouncements = (announcements: Announcement[]) => {
-  saveToServer(ANNOUNCEMENTS_KEY, announcements);
+export const saveAnnouncements = async (announcements: Announcement[]) => {
+  await saveToServer(ANNOUNCEMENTS_KEY, announcements);
 };
 
 export const getStoredRehearsalSchedule = (): RehearsalSchedule[] => {
   return dbCache[REHEARSAL_SCHEDULE_KEY] || LOCAL_DEFAULTS[REHEARSAL_SCHEDULE_KEY];
 };
 
-export const saveRehearsalSchedule = (schedule: RehearsalSchedule[]) => {
-  saveToServer(REHEARSAL_SCHEDULE_KEY, schedule);
+export const saveRehearsalSchedule = async (schedule: RehearsalSchedule[]) => {
+  await saveToServer(REHEARSAL_SCHEDULE_KEY, schedule);
 };
 
 export const getStoredVacationPeriod = (): VacationPeriod => {
   return dbCache[VACATION_PERIOD_KEY] || LOCAL_DEFAULTS[VACATION_PERIOD_KEY];
 };
 
-export const saveVacationPeriod = (period: VacationPeriod) => {
-  saveToServer(VACATION_PERIOD_KEY, period);
+export const saveVacationPeriod = async (period: VacationPeriod) => {
+  await saveToServer(VACATION_PERIOD_KEY, period);
 };
 
 export const getStoredAccessLogs = (): AccessLog[] => {
   return dbCache[ACCESS_LOGS_KEY] || LOCAL_DEFAULTS[ACCESS_LOGS_KEY];
 };
 
-export const saveAccessLogs = (logs: AccessLog[]) => {
-  saveToServer(ACCESS_LOGS_KEY, logs);
+export const saveAccessLogs = async (logs: AccessLog[]) => {
+  await saveToServer(ACCESS_LOGS_KEY, logs);
 };
 
-export const addAccessLog = (user: User, instrument: Instrument) => {
+export const addAccessLog = async (user: User, instrument: Instrument) => {
   const logs = getStoredAccessLogs();
   const newLog: AccessLog = {
     id: Math.random().toString(36).substr(2, 9),
@@ -227,23 +236,23 @@ export const addAccessLog = (user: User, instrument: Instrument) => {
     accessedAt: new Date().toISOString()
   };
   const updatedLogs = [newLog, ...logs].slice(0, 1000);
-  saveAccessLogs(updatedLogs);
+  await saveAccessLogs(updatedLogs);
 };
 
 export const getStoredUsers = (): User[] => {
   return dbCache[USERS_KEY] || LOCAL_DEFAULTS[USERS_KEY];
 };
 
-export const saveUsers = (users: User[]) => {
-  saveToServer(USERS_KEY, users);
+export const saveUsers = async (users: User[]) => {
+  await saveToServer(USERS_KEY, users);
 };
 
 export const getStoredScores = (): Score[] => {
   return dbCache[SCORES_KEY] || LOCAL_DEFAULTS[SCORES_KEY];
 };
 
-export const saveScores = (scores: Score[]) => {
-  saveToServer(SCORES_KEY, scores);
+export const saveScores = async (scores: Score[]) => {
+  await saveToServer(SCORES_KEY, scores);
 };
 
 export const getScoreForInstrument = (instrument: Instrument): string => {
@@ -252,7 +261,7 @@ export const getScoreForInstrument = (instrument: Instrument): string => {
   return score ? score.notion_url : '';
 };
 
-export const registerUser = (userData: Omit<User, 'role' | 'temp_access_until' | 'joined_at' | 'passcode'>): { success: boolean; message: string; passcode?: string } => {
+export const registerUser = async (userData: Omit<User, 'role' | 'temp_access_until' | 'joined_at' | 'passcode'>): Promise<{ success: boolean; message: string; passcode?: string }> => {
   const users = getStoredUsers();
   if (users.some(u => u.id === userData.id)) return { success: false, message: 'ID already exists.' };
   
@@ -265,21 +274,21 @@ export const registerUser = (userData: Omit<User, 'role' | 'temp_access_until' |
     temp_access_until: null,
     joined_at: new Date().toISOString()
   };
-  saveUsers([...users, newUser]);
+  await saveUsers([...users, newUser]);
   return { success: true, message: 'Registration successful!', passcode };
 };
 
-export const updateUser = (userId: string, updates: Partial<User>) => {
+export const updateUser = async (userId: string, updates: Partial<User>) => {
   const users = getStoredUsers();
   const updated = users.map(u => u.id === userId ? { ...u, ...updates } : u);
-  saveUsers(updated);
+  await saveUsers(updated);
 };
 
-export const deleteUser = (userId: string): boolean => {
+export const deleteUser = async (userId: string): Promise<boolean> => {
   const users = getStoredUsers();
   const filtered = users.filter(u => u.id !== userId);
   if (filtered.length === users.length) return false;
-  saveUsers(filtered);
+  await saveUsers(filtered);
   return true;
 };
 
