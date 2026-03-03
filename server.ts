@@ -8,9 +8,9 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.join(__dirname, "data");
+const DATA_DIR = path.join(process.cwd(), "data");
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR);
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 const getFilePath = (name: string) => path.join(DATA_DIR, `${name}.json`);
@@ -55,20 +55,33 @@ const DEFAULTS: Record<string, any> = {
 const readData = (name: string) => {
   const filePath = getFilePath(name);
   if (!fs.existsSync(filePath)) {
+    console.log(`[READ] File not found: ${filePath}, returning defaults`);
     return DEFAULTS[name] || null;
   }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(content);
+    const data = JSON.parse(content);
+    console.log(`[READ] Success: ${name} (${Array.isArray(data) ? data.length : 'object'})`);
+    return data;
   } catch (e) {
-    console.error(`Error reading ${name}:`, e);
+    console.error(`[READ] Error reading ${name}:`, e);
     return DEFAULTS[name] || null;
   }
 };
 
 const saveData = (name: string, data: any) => {
-  const filePath = getFilePath(name);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  try {
+    const filePath = getFilePath(name);
+    const dirPath = path.dirname(filePath);
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+    console.log(`[SAVE] Success: ${name} to ${filePath}`);
+  } catch (e) {
+    console.error(`[SAVE] Error saving ${name}:`, e);
+    throw e;
+  }
 };
 
 async function startServer() {
