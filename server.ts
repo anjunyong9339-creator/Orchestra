@@ -1,6 +1,5 @@
 
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import path from "path";
 import cors from "cors";
@@ -73,51 +72,51 @@ const saveData = (name: string, data: any) => {
 };
 
 async function startServer() {
-  const app = express();
-  const PORT = 3000;
+  try {
+    const app = express();
+    const PORT = 3000;
 
-  app.use(cors());
-  app.use(express.json({ limit: '50mb' }));
+    app.use(cors());
+    app.use(express.json({ limit: '50mb' }));
 
-  // API Routes
-  app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+    // API Routes
+    app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-  app.get("/api/data/:name", (req, res) => {
-    const { name } = req.params;
-    const data = readData(name);
-    console.log(`[GET] ${name} - ${Array.isArray(data) ? data.length : 'object'} items`);
-    res.json(data);
-  });
-
-  app.post("/api/data/:name", (req, res) => {
-    const { name } = req.params;
-    console.log(`[POST] ${name} - Updating data...`);
-    saveData(name, req.body);
-    res.json({ success: true });
-  });
-
-  // Production vs Development mode
-  const isProd = process.env.NODE_ENV === "production" || fs.existsSync(path.join(__dirname, "dist"));
-
-  if (isProd) {
-    console.log("Running in PRODUCTION mode");
-    app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+    app.get("/api/data/:name", (req, res) => {
+      const { name } = req.params;
+      const data = readData(name);
+      res.json(data);
     });
-  } else {
-    console.log("Running in DEVELOPMENT mode");
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
+
+    app.post("/api/data/:name", (req, res) => {
+      const { name } = req.params;
+      saveData(name, req.body);
+      res.json({ success: true });
     });
-    app.use(vite.middlewares);
+
+    const isProd = process.env.NODE_ENV === "production" || fs.existsSync(path.join(__dirname, "dist"));
+
+    if (isProd) {
+      app.use(express.static(path.join(__dirname, "dist")));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(__dirname, "dist", "index.html"));
+      });
+    } else {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    }
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
   }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
 }
 
 startServer();
