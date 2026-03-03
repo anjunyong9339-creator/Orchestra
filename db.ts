@@ -83,8 +83,40 @@ export const initDB = async () => {
     SCORES_KEY, ANNOUNCEMENTS_KEY
   ];
   
-  // Fetch all data
+  // 1. Fetch all data from server
   await Promise.all(keys.map(key => fetchFromServer(key)));
+  
+  // 2. Migration: If server data is default/empty but localStorage has data, sync it to server
+  for (const key of keys) {
+    const localData = localStorage.getItem(key);
+    if (localData) {
+      try {
+        const parsedLocal = JSON.parse(localData);
+        const serverData = dbCache[key];
+        
+        // If server data is just the default admin or empty, and local has more
+        if (key === USERS_KEY) {
+          if (Array.isArray(parsedLocal) && parsedLocal.length > (Array.isArray(serverData) ? serverData.length : 0)) {
+            console.log(`Migrating ${key} to server...`);
+            // Merge users (keep server users, add local users that don't exist by ID)
+            const merged = [...(Array.isArray(serverData) ? serverData : [])];
+            parsedLocal.forEach((u: any) => {
+              if (!merged.find(m => m.id === u.id)) {
+                merged.push(u);
+              }
+            });
+            await saveToServer(key, merged);
+          }
+        } else if (key === ACCESS_LOGS_KEY || key === ANNOUNCEMENTS_KEY) {
+           if (Array.isArray(parsedLocal) && parsedLocal.length > 0 && (!serverData || serverData.length === 0)) {
+             await saveToServer(key, parsedLocal);
+           }
+        }
+      } catch (e) {
+        console.error(`Migration error for ${key}:`, e);
+      }
+    }
+  }
   
   // Refresh exported variables
   INSTRUMENTS = getStoredInstruments();

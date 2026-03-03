@@ -83,11 +83,13 @@ async function startServer() {
   app.get("/api/data/:name", (req, res) => {
     const { name } = req.params;
     const data = readData(name);
+    console.log(`[GET] ${name} - ${Array.isArray(data) ? data.length : 'object'} items`);
     res.json(data);
   });
 
   app.post("/api/data/:name", (req, res) => {
     const { name } = req.params;
+    console.log(`[POST] ${name} - Updating data...`);
     saveData(name, req.body);
     res.json({ success: true });
   });
