@@ -10,29 +10,62 @@ const USERS_KEY = 'orchestra_gateway_users';
 const SCORES_KEY = 'orchestra_gateway_scores';
 const ANNOUNCEMENTS_KEY = 'orchestra_gateway_announcements';
 
+const DEFAULT_INSTRUMENTS: Instrument[] = [
+  'FullScore', 'Sogeum', 'Daegeum', 'Piri', 'Daepiri', 'Saenghwang', 
+  'Taepyeongso', 'Haegeum', 'Ajaeng', 'Gayageum', 'Geumungo', 
+  'Yanggeum', 'Percussion', 'Piano', 'Flute', 'Panflute', 'Cello'
+];
+
+const DEFAULT_TRANSLATIONS: Record<string, string> = {
+  'Sogeum': '소금', 'Daegeum': '대금', 'Piri': '피리', 'Daepiri': '대피리', 'Saenghwang': '생황',
+  'Taepyeongso': '태평소', 'Haegeum': '해금', 'Ajaeng': '아쟁', 'Gayageum': '가야금', 'Geumungo': '거문고',
+  'Yanggeum': '양금', 'Percussion': '타악', 'Piano': '피아노', 'Flute': '플룻', 'Panflute': '팬플룻', 'Cello': '첼로', 'FullScore': '총보(스코어)'
+};
+
+const LOCAL_DEFAULTS: Record<string, any> = {
+  [USERS_KEY]: [
+    { id: 'admin', name: 'Admin User', password: 'admin', passcode: '000000', instrument: 'Piano', role: 'admin', temp_access_until: null, joined_at: new Date('2024-01-01').toISOString() },
+  ],
+  [INSTRUMENTS_KEY]: DEFAULT_INSTRUMENTS,
+  [TRANSLATIONS_KEY]: DEFAULT_TRANSLATIONS,
+  [REHEARSAL_SCHEDULE_KEY]: [
+    { id: 'tue', dayOfWeek: 2, startTime: '18:00', endTime: '23:00' },
+    { id: 'sat', dayOfWeek: 6, startTime: '10:00', endTime: '18:00' }
+  ],
+  [VACATION_PERIOD_KEY]: { startDate: '', endDate: '', isActive: false },
+  [SCORES_KEY]: DEFAULT_INSTRUMENTS.map(inst => ({
+    instrument: inst,
+    notion_url: `https://notion.so/orchestra/${inst.toLowerCase().replace(' ', '-')}-scores`
+  })),
+  [ANNOUNCEMENTS_KEY]: [],
+  [ACCESS_LOGS_KEY]: []
+};
+
 // Cache for synchronous access
-let dbCache: Record<string, any> = {};
+let dbCache: Record<string, any> = { ...LOCAL_DEFAULTS };
 
 // Helper to fetch data from server
 const fetchFromServer = async (key: string) => {
   try {
-    const response = await fetch(`/api/data/${key}`);
+    const response = await fetch(`${window.location.origin}/api/data/${key}`);
     if (response.ok) {
       const data = await response.json();
-      dbCache[key] = data;
-      return data;
+      if (data) {
+        dbCache[key] = data;
+        return data;
+      }
     }
   } catch (e) {
     console.error(`Error fetching ${key} from server:`, e);
   }
-  return null;
+  return dbCache[key]; // Return cached/default if fetch fails
 };
 
 // Helper to save data to server
 const saveToServer = async (key: string, data: any) => {
   dbCache[key] = data; // Update cache immediately
   try {
-    await fetch(`/api/data/${key}`, {
+    await fetch(`${window.location.origin}/api/data/${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -49,6 +82,8 @@ export const initDB = async () => {
     VACATION_PERIOD_KEY, ACCESS_LOGS_KEY, USERS_KEY, 
     SCORES_KEY, ANNOUNCEMENTS_KEY
   ];
+  
+  // Fetch all data
   await Promise.all(keys.map(key => fetchFromServer(key)));
   
   // Refresh exported variables
@@ -57,7 +92,7 @@ export const initDB = async () => {
 };
 
 export const getStoredInstruments = (): Instrument[] => {
-  return dbCache[INSTRUMENTS_KEY] || [];
+  return dbCache[INSTRUMENTS_KEY] || LOCAL_DEFAULTS[INSTRUMENTS_KEY];
 };
 
 export const saveInstruments = (instruments: Instrument[]) => {
@@ -65,7 +100,7 @@ export const saveInstruments = (instruments: Instrument[]) => {
 };
 
 export const getStoredTranslations = (): Record<string, string> => {
-  return dbCache[TRANSLATIONS_KEY] || {};
+  return dbCache[TRANSLATIONS_KEY] || LOCAL_DEFAULTS[TRANSLATIONS_KEY];
 };
 
 export const saveTranslations = (translations: Record<string, string>) => {
@@ -119,7 +154,7 @@ export const deleteInstrument = (id: string) => {
 };
 
 export const getStoredAnnouncements = (): Announcement[] => {
-  return dbCache[ANNOUNCEMENTS_KEY] || [];
+  return dbCache[ANNOUNCEMENTS_KEY] || LOCAL_DEFAULTS[ANNOUNCEMENTS_KEY];
 };
 
 export const saveAnnouncements = (announcements: Announcement[]) => {
@@ -127,7 +162,7 @@ export const saveAnnouncements = (announcements: Announcement[]) => {
 };
 
 export const getStoredRehearsalSchedule = (): RehearsalSchedule[] => {
-  return dbCache[REHEARSAL_SCHEDULE_KEY] || [];
+  return dbCache[REHEARSAL_SCHEDULE_KEY] || LOCAL_DEFAULTS[REHEARSAL_SCHEDULE_KEY];
 };
 
 export const saveRehearsalSchedule = (schedule: RehearsalSchedule[]) => {
@@ -135,7 +170,7 @@ export const saveRehearsalSchedule = (schedule: RehearsalSchedule[]) => {
 };
 
 export const getStoredVacationPeriod = (): VacationPeriod => {
-  return dbCache[VACATION_PERIOD_KEY] || { startDate: '', endDate: '', isActive: false };
+  return dbCache[VACATION_PERIOD_KEY] || LOCAL_DEFAULTS[VACATION_PERIOD_KEY];
 };
 
 export const saveVacationPeriod = (period: VacationPeriod) => {
@@ -143,7 +178,7 @@ export const saveVacationPeriod = (period: VacationPeriod) => {
 };
 
 export const getStoredAccessLogs = (): AccessLog[] => {
-  return dbCache[ACCESS_LOGS_KEY] || [];
+  return dbCache[ACCESS_LOGS_KEY] || LOCAL_DEFAULTS[ACCESS_LOGS_KEY];
 };
 
 export const saveAccessLogs = (logs: AccessLog[]) => {
@@ -164,7 +199,7 @@ export const addAccessLog = (user: User, instrument: Instrument) => {
 };
 
 export const getStoredUsers = (): User[] => {
-  return dbCache[USERS_KEY] || [];
+  return dbCache[USERS_KEY] || LOCAL_DEFAULTS[USERS_KEY];
 };
 
 export const saveUsers = (users: User[]) => {
@@ -172,7 +207,7 @@ export const saveUsers = (users: User[]) => {
 };
 
 export const getStoredScores = (): Score[] => {
-  return dbCache[SCORES_KEY] || [];
+  return dbCache[SCORES_KEY] || LOCAL_DEFAULTS[SCORES_KEY];
 };
 
 export const saveScores = (scores: Score[]) => {

@@ -18,7 +18,7 @@ const getFilePath = (name: string) => path.join(DATA_DIR, `${name}.json`);
 
 const DEFAULTS: Record<string, any> = {
   orchestra_gateway_users: [
-    { id: 'admin', name: 'Admin User', password: 'admin-password', passcode: '000000', instrument: 'Piano', role: 'admin', temp_access_until: null, joined_at: new Date('2024-01-01').toISOString() },
+    { id: 'admin', name: 'Admin User', password: 'admin', passcode: '000000', instrument: 'Piano', role: 'admin', temp_access_until: null, joined_at: new Date('2024-01-01').toISOString() },
     { id: 'haegeum1', name: '김해금', password: '1234', passcode: '123456', instrument: 'Haegeum', role: 'member', temp_access_until: null, joined_at: new Date('2024-02-15').toISOString() },
     { id: 'cello1', name: '이첼로', password: '1234', passcode: '654321', instrument: 'Cello', role: 'member', temp_access_until: null, joined_at: new Date('2024-03-10').toISOString() },
   ],
