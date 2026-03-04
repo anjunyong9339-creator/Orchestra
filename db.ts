@@ -1,14 +1,32 @@
 
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, get, child, update, push } from "firebase/database";
 import { User, Score, Instrument, Announcement, RehearsalSchedule, VacationPeriod, AccessLog } from './types';
 
-const INSTRUMENTS_KEY = 'orchestra_gateway_instruments';
-const TRANSLATIONS_KEY = 'orchestra_gateway_translations';
-const REHEARSAL_SCHEDULE_KEY = 'orchestra_gateway_rehearsal_schedule';
-const VACATION_PERIOD_KEY = 'orchestra_gateway_vacation_period';
-const ACCESS_LOGS_KEY = 'orchestra_gateway_access_logs';
-const USERS_KEY = 'orchestra_gateway_users';
-const SCORES_KEY = 'orchestra_gateway_scores';
-const ANNOUNCEMENTS_KEY = 'orchestra_gateway_announcements';
+// Firebase 설정 (사용자가 직접 입력해야 함)
+const firebaseConfig = {
+  apiKey: "AIzaSyDrrf_OPLKPcwGY-9PQedRpdsYGh-aMRrI",
+  authDomain: "sarang123-8302a.firebaseapp.com",
+  databaseURL: "https://sarang123-8302a-default-rtdb.firebaseio.com",
+  projectId: "sarang123-8302a",
+  storageBucket: "sarang123-8302a.firebasestorage.app",
+  messagingSenderId: "377150877214",
+  appId: "1:377150877214:web:00a816739367887dfe480f",
+  measurementId: "G-FSPMCT43JW"
+};
+
+// Firebase 초기화
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const INSTRUMENTS_KEY = 'instruments';
+const TRANSLATIONS_KEY = 'translations';
+const REHEARSAL_SCHEDULE_KEY = 'rehearsal_schedule';
+const VACATION_PERIOD_KEY = 'vacation_period';
+const ACCESS_LOGS_KEY = 'access_logs';
+const USERS_KEY = 'users';
+const SCORES_KEY = 'scores';
+const ANNOUNCEMENTS_KEY = 'announcements';
 
 const DEFAULT_INSTRUMENTS: Instrument[] = [
   'FullScore', 'Sogeum', 'Daegeum', 'Piri', 'Daepiri', 'Saenghwang', 
@@ -22,66 +40,35 @@ const DEFAULT_TRANSLATIONS: Record<string, string> = {
   'Yanggeum': '양금', 'Percussion': '타악', 'Piano': '피아노', 'Flute': '플룻', 'Panflute': '팬플룻', 'Cello': '첼로', 'FullScore': '총보(스코어)'
 };
 
-const LOCAL_DEFAULTS: Record<string, any> = {
-  [USERS_KEY]: [
-    { id: 'admin', name: 'Admin User', password: 'admin', passcode: '000000', instrument: 'Piano', role: 'admin', temp_access_until: null, joined_at: new Date('2024-01-01').toISOString() },
-  ],
-  [INSTRUMENTS_KEY]: DEFAULT_INSTRUMENTS,
-  [TRANSLATIONS_KEY]: DEFAULT_TRANSLATIONS,
-  [REHEARSAL_SCHEDULE_KEY]: [
-    { id: 'tue', dayOfWeek: 2, startTime: '18:00', endTime: '23:00' },
-    { id: 'sat', dayOfWeek: 6, startTime: '10:00', endTime: '18:00' }
-  ],
-  [VACATION_PERIOD_KEY]: { startDate: '', endDate: '', isActive: false },
-  [SCORES_KEY]: DEFAULT_INSTRUMENTS.map(inst => ({
-    instrument: inst,
-    notion_url: `https://notion.so/orchestra/${inst.toLowerCase().replace(' ', '-')}-scores`
-  })),
-  [ANNOUNCEMENTS_KEY]: [],
-  [ACCESS_LOGS_KEY]: []
-};
-
 // Cache for synchronous access
-let dbCache: Record<string, any> = { ...LOCAL_DEFAULTS };
+let dbCache: Record<string, any> = {};
 let isSyncing = false;
 let lastSyncTime = 0;
 
-// Helper to fetch data from server
-const fetchFromServer = async (key: string) => {
+// Helper to fetch data from Firebase
+const fetchFromFirebase = async (key: string) => {
   try {
-    const response = await fetch(`/api/data/${key}`);
-    if (response.ok) {
-      const data = await response.json();
-      if (data && !data.error) {
-        dbCache[key] = data;
-        return data;
-      }
+    const dbRef = ref(db);
+    const snapshot = await get(child(dbRef, key));
+    if (snapshot.exists()) {
+      dbCache[key] = snapshot.val();
+      return snapshot.val();
     }
   } catch (e) {
-    console.warn(`Server unreachable for ${key}, using local cache.`);
+    console.error(`Error fetching ${key} from Firebase:`, e);
   }
   return dbCache[key];
 };
 
-// Helper to save data to server
-const saveToServer = async (key: string, data: any) => {
+// Helper to save data to Firebase
+const saveToFirebase = async (key: string, data: any) => {
   dbCache[key] = data;
   isSyncing = true;
   try {
-    const response = await fetch(`/api/data/${key}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (response.ok) {
-      lastSyncTime = Date.now();
-      // Also update localStorage as a backup
-      localStorage.setItem(key, JSON.stringify(data));
-    }
+    await set(ref(db, key), data);
+    lastSyncTime = Date.now();
   } catch (e) {
-    console.error(`Error saving ${key} to server:`, e);
-    // Fallback to localStorage
-    localStorage.setItem(key, JSON.stringify(data));
+    console.error(`Error saving ${key} to Firebase:`, e);
   } finally {
     isSyncing = false;
   }
@@ -95,37 +82,32 @@ export const initDB = async () => {
     SCORES_KEY, ANNOUNCEMENTS_KEY
   ];
   
-  // 1. Fetch all data from server
-  await Promise.all(keys.map(key => fetchFromServer(key)));
+  // 1. Fetch all data from Firebase
+  await Promise.all(keys.map(key => fetchFromFirebase(key)));
   
-  // 2. Migration: If server data is default/empty but localStorage has data, sync it to server
-  for (const key of keys) {
-    const localData = localStorage.getItem(key);
-    if (localData) {
-      try {
-        const parsedLocal = JSON.parse(localData);
-        const serverData = dbCache[key];
-        
-        if (key === USERS_KEY) {
-          // If local has more users than server (excluding the default admin check)
-          if (Array.isArray(parsedLocal) && parsedLocal.length > (Array.isArray(serverData) ? serverData.length : 0)) {
-            const merged = [...(Array.isArray(serverData) ? serverData : [])];
-            parsedLocal.forEach((u: any) => {
-              if (!merged.find(m => m.id === u.id)) {
-                merged.push(u);
-              }
-            });
-            await saveToServer(key, merged);
-          }
-        } else if (key === ACCESS_LOGS_KEY || key === ANNOUNCEMENTS_KEY) {
-           if (Array.isArray(parsedLocal) && parsedLocal.length > 0 && (!serverData || serverData.length === 0)) {
-             await saveToServer(key, parsedLocal);
-           }
-        }
-      } catch (e) {
-        console.error(`Migration error for ${key}:`, e);
-      }
-    }
+  // 2. Set defaults if Firebase is empty
+  if (!dbCache[USERS_KEY]) {
+    const initialUsers = [
+      { id: 'admin', name: 'Admin User', password: 'admin', passcode: '000000', instrument: 'Piano', role: 'admin', temp_access_until: null, joined_at: new Date('2024-01-01').toISOString() }
+    ];
+    await saveToFirebase(USERS_KEY, initialUsers);
+  }
+  
+  if (!dbCache[INSTRUMENTS_KEY]) await saveToFirebase(INSTRUMENTS_KEY, DEFAULT_INSTRUMENTS);
+  if (!dbCache[TRANSLATIONS_KEY]) await saveToFirebase(TRANSLATIONS_KEY, DEFAULT_TRANSLATIONS);
+  if (!dbCache[REHEARSAL_SCHEDULE_KEY]) {
+    await saveToFirebase(REHEARSAL_SCHEDULE_KEY, [
+      { id: 'tue', dayOfWeek: 2, startTime: '18:00', endTime: '23:00' },
+      { id: 'sat', dayOfWeek: 6, startTime: '10:00', endTime: '18:00' }
+    ]);
+  }
+  if (!dbCache[VACATION_PERIOD_KEY]) await saveToFirebase(VACATION_PERIOD_KEY, { startDate: '', endDate: '', isActive: false });
+  if (!dbCache[SCORES_KEY]) {
+    const initialScores = DEFAULT_INSTRUMENTS.map(inst => ({
+      instrument: inst,
+      notion_url: `https://notion.so/orchestra/${inst.toLowerCase().replace(' ', '-')}-scores`
+    }));
+    await saveToFirebase(SCORES_KEY, initialScores);
   }
   
   // Refresh exported variables
@@ -137,19 +119,19 @@ export const initDB = async () => {
 export const getSyncStatus = () => ({ isSyncing, lastSyncTime });
 
 export const getStoredInstruments = (): Instrument[] => {
-  return dbCache[INSTRUMENTS_KEY] || LOCAL_DEFAULTS[INSTRUMENTS_KEY];
+  return dbCache[INSTRUMENTS_KEY] || DEFAULT_INSTRUMENTS;
 };
 
 export const saveInstruments = async (instruments: Instrument[]) => {
-  await saveToServer(INSTRUMENTS_KEY, instruments);
+  await saveToFirebase(INSTRUMENTS_KEY, instruments);
 };
 
 export const getStoredTranslations = (): Record<string, string> => {
-  return dbCache[TRANSLATIONS_KEY] || LOCAL_DEFAULTS[TRANSLATIONS_KEY];
+  return dbCache[TRANSLATIONS_KEY] || DEFAULT_TRANSLATIONS;
 };
 
 export const saveTranslations = async (translations: Record<string, string>) => {
-  await saveToServer(TRANSLATIONS_KEY, translations);
+  await saveToFirebase(TRANSLATIONS_KEY, translations);
 };
 
 export const getInstrumentName = (id: string): string => {
@@ -199,35 +181,35 @@ export const deleteInstrument = async (id: string) => {
 };
 
 export const getStoredAnnouncements = (): Announcement[] => {
-  return dbCache[ANNOUNCEMENTS_KEY] || LOCAL_DEFAULTS[ANNOUNCEMENTS_KEY];
+  return dbCache[ANNOUNCEMENTS_KEY] || [];
 };
 
 export const saveAnnouncements = async (announcements: Announcement[]) => {
-  await saveToServer(ANNOUNCEMENTS_KEY, announcements);
+  await saveToFirebase(ANNOUNCEMENTS_KEY, announcements);
 };
 
 export const getStoredRehearsalSchedule = (): RehearsalSchedule[] => {
-  return dbCache[REHEARSAL_SCHEDULE_KEY] || LOCAL_DEFAULTS[REHEARSAL_SCHEDULE_KEY];
+  return dbCache[REHEARSAL_SCHEDULE_KEY] || [];
 };
 
 export const saveRehearsalSchedule = async (schedule: RehearsalSchedule[]) => {
-  await saveToServer(REHEARSAL_SCHEDULE_KEY, schedule);
+  await saveToFirebase(REHEARSAL_SCHEDULE_KEY, schedule);
 };
 
 export const getStoredVacationPeriod = (): VacationPeriod => {
-  return dbCache[VACATION_PERIOD_KEY] || LOCAL_DEFAULTS[VACATION_PERIOD_KEY];
+  return dbCache[VACATION_PERIOD_KEY] || { startDate: '', endDate: '', isActive: false };
 };
 
 export const saveVacationPeriod = async (period: VacationPeriod) => {
-  await saveToServer(VACATION_PERIOD_KEY, period);
+  await saveToFirebase(VACATION_PERIOD_KEY, period);
 };
 
 export const getStoredAccessLogs = (): AccessLog[] => {
-  return dbCache[ACCESS_LOGS_KEY] || LOCAL_DEFAULTS[ACCESS_LOGS_KEY];
+  return dbCache[ACCESS_LOGS_KEY] || [];
 };
 
 export const saveAccessLogs = async (logs: AccessLog[]) => {
-  await saveToServer(ACCESS_LOGS_KEY, logs);
+  await saveToFirebase(ACCESS_LOGS_KEY, logs);
 };
 
 export const addAccessLog = async (user: User, instrument: Instrument) => {
@@ -244,19 +226,19 @@ export const addAccessLog = async (user: User, instrument: Instrument) => {
 };
 
 export const getStoredUsers = (): User[] => {
-  return dbCache[USERS_KEY] || LOCAL_DEFAULTS[USERS_KEY];
+  return dbCache[USERS_KEY] || [];
 };
 
 export const saveUsers = async (users: User[]) => {
-  await saveToServer(USERS_KEY, users);
+  await saveToFirebase(USERS_KEY, users);
 };
 
 export const getStoredScores = (): Score[] => {
-  return dbCache[SCORES_KEY] || LOCAL_DEFAULTS[SCORES_KEY];
+  return dbCache[SCORES_KEY] || [];
 };
 
 export const saveScores = async (scores: Score[]) => {
-  await saveToServer(SCORES_KEY, scores);
+  await saveToFirebase(SCORES_KEY, scores);
 };
 
 export const getScoreForInstrument = (instrument: Instrument): string => {
