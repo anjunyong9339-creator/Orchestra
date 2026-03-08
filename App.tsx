@@ -34,37 +34,49 @@ const App: React.FC = () => {
     let unsubSchedule: (() => void) | null = null;
 
     const initialize = async () => {
-      await initDB();
-      
-      // Global subscriptions to keep dbCache fresh for isAccessAllowed and handleLogin
-      unsubUsers = subscribeToKey('users', (users: User[]) => {
-        if (users) {
-          // If logged in, update the current auth user state
-          const savedSession = localStorage.getItem('orchestra_session');
-          if (savedSession) {
-            const sessionUser = JSON.parse(savedSession);
-            const updatedUser = users.find(u => u.id === sessionUser.id);
-            if (updatedUser) {
-              setAuth(prev => ({ ...prev, user: updatedUser, isAuthenticated: true }));
-              localStorage.setItem('orchestra_session', JSON.stringify(updatedUser));
-            } else {
-              // User might have been deleted by admin
-              setAuth({ user: null, isAuthenticated: false });
-              localStorage.removeItem('orchestra_session');
-            }
+      try {
+        await initDB();
+        
+        const savedSession = localStorage.getItem('orchestra_session');
+        if (savedSession) {
+          const sessionUser = JSON.parse(savedSession);
+          const users = getStoredUsers();
+          const updatedUser = users.find(u => u.id === sessionUser.id);
+          
+          if (updatedUser) {
+            setAuth({ user: updatedUser, isAuthenticated: true });
+            localStorage.setItem('orchestra_session', JSON.stringify(updatedUser));
+          } else {
+            localStorage.removeItem('orchestra_session');
           }
         }
-      });
 
-      unsubVacation = subscribeToKey('vacation_period', () => {
-        // Just subscribing updates dbCache automatically
-      });
+        // Global subscriptions to keep dbCache fresh and update UI in real-time
+        unsubUsers = subscribeToKey('users', (users: User[]) => {
+          if (users) {
+            const currentSession = localStorage.getItem('orchestra_session');
+            if (currentSession) {
+              const sessionUser = JSON.parse(currentSession);
+              const updatedUser = users.find(u => u.id === sessionUser.id);
+              if (updatedUser) {
+                setAuth(prev => ({ ...prev, user: updatedUser, isAuthenticated: true }));
+                localStorage.setItem('orchestra_session', JSON.stringify(updatedUser));
+              } else {
+                setAuth({ user: null, isAuthenticated: false });
+                localStorage.removeItem('orchestra_session');
+              }
+            }
+          }
+        });
 
-      unsubSchedule = subscribeToKey('rehearsal_schedule', () => {
-        // Just subscribing updates dbCache automatically
-      });
+        unsubVacation = subscribeToKey('vacation_period', () => {});
+        unsubSchedule = subscribeToKey('rehearsal_schedule', () => {});
 
-      setIsLoading(false);
+      } catch (error) {
+        console.error("Initialization failed:", error);
+      } finally {
+        setIsLoading(false);
+      }
     };
     initialize();
 

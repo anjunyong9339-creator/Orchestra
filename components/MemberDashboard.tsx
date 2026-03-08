@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Announcement, RehearsalSchedule, VacationPeriod } from '../types';
 import { 
   getInstrumentName, getStoredAnnouncements, getStoredRehearsalSchedule, 
-  getStoredVacationPeriod, subscribeToKey 
+  getStoredVacationPeriod, subscribeToKey, isAccessAllowed 
 } from '../db';
 import { formatDateWithDay, formatDateOnly } from '../utils/dateUtils';
 import { Clock, ExternalLink, Calendar, ShieldCheck, Settings, Megaphone, ChevronRight, Info, ShieldAlert, Coffee } from 'lucide-react';
@@ -64,6 +64,7 @@ const MemberDashboard: React.FC<Props> = ({ user, onOpenScores, onGoToAdmin }) =
   });
 
   const isRehearsalTime = !isVacation && !!currentSlot;
+  const { allowed: isGateAllowed } = isAccessAllowed(user, vacation, schedule);
 
   const getClosingTime = () => {
     return currentSlot ? currentSlot.endTime : "";
@@ -214,8 +215,8 @@ const MemberDashboard: React.FC<Props> = ({ user, onOpenScores, onGoToAdmin }) =
 
               <button 
                 onClick={onOpenScores}
-                className={`w-full group flex items-center justify-center gap-2 font-semibold py-4 rounded-xl transition shadow-lg ${isRehearsalTime || (user.temp_access_until && new Date(user.temp_access_until) > new Date()) ? 'bg-slate-900 hover:bg-slate-800 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                disabled={!isRehearsalTime && !(user.temp_access_until && new Date(user.temp_access_until) > new Date())}
+                className={`w-full group flex items-center justify-center gap-2 font-semibold py-4 rounded-xl transition shadow-lg ${isGateAllowed ? 'bg-slate-900 hover:bg-slate-800 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                disabled={!isGateAllowed}
               >
                 악보 게이트웨이로 이동
                 <ExternalLink size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
