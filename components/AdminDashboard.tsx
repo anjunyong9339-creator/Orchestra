@@ -243,18 +243,29 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
 
   const handleScheduleAccess = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!scheduleEnd) return;
-    if (!isBulkSchedule && !selectedUser) return;
+    if (!scheduleEnd) {
+      alert('접근 만료 일시를 선택해주세요.');
+      return;
+    }
+    if (!isBulkSchedule && !selectedUser) {
+      alert('대상 단원이 선택되지 않았습니다.');
+      return;
+    }
     
     try {
       const start = isStartFromNow 
-        ? new Date(Date.now() - 60000).toISOString() 
+        ? new Date(Date.now() - 30000).toISOString() // 30 seconds ago for immediate access
         : new Date(scheduleStart).toISOString();
       const end = new Date(scheduleEnd).toISOString();
       
       const targetIds = isBulkSchedule 
         ? (selectedUserIds.length > 0 ? selectedUserIds : filteredUsers.map(u => u.id)).filter(id => id !== 'admin')
         : [selectedUser!.id];
+
+      if (targetIds.length === 0) {
+        alert('대상 단원이 없습니다.');
+        return;
+      }
 
       await Promise.all(targetIds.map(async (id) => {
         const user = users.find(u => u.id === id);
@@ -263,8 +274,8 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
         await updateUser(id, { 
           temp_access_from: start,
           temp_access_until: end,
-          other_parts_access_until: includeOtherParts ? end : user.other_parts_access_until,
-          allowed_other_parts: includeOtherParts ? selectedParts : user.allowed_other_parts
+          other_parts_access_until: includeOtherParts ? end : (user.other_parts_access_until || null),
+          allowed_other_parts: includeOtherParts ? selectedParts : (user.allowed_other_parts || [])
         });
       }));
 
@@ -280,8 +291,13 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
       
       setSuccessMessage(isBulkSchedule ? `${targetIds.length}명의 예약 승인 설정이 완료되었습니다.` : '해당 단원의 예약 승인 설정이 완료되었습니다.');
       setShowSuccessModal(true);
-    } catch (err) {
-      alert('날짜 형식이 올바르지 않습니다.');
+    } catch (err: any) {
+      console.error('Schedule access error:', err);
+      if (err instanceof RangeError) {
+        alert('날짜 형식이 올바르지 않습니다. 정확한 날짜와 시간을 선택해주세요.');
+      } else {
+        alert(`오류가 발생했습니다: ${err.message || '알 수 없는 오류'}`);
+      }
     }
   };
 

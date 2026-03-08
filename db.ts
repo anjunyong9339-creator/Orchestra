@@ -1,6 +1,6 @@
 
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, get, child, update, push } from "firebase/database";
+import { getDatabase, ref, set, get, child, update, push, runTransaction, onValue } from "firebase/database";
 import { User, Score, Instrument, Announcement, RehearsalSchedule, VacationPeriod, AccessLog } from './types';
 
 // Firebase 설정 (사용자가 직접 입력해야 함)
@@ -62,8 +62,6 @@ const fetchFromFirebase = async (key: string) => {
 };
 
 // Real-time listener setup
-import { onValue } from "firebase/database";
-
 export const subscribeToKey = (key: string, callback: (data: any) => void) => {
   const dbRef = ref(db, key);
   const unsubscribe = onValue(dbRef, (snapshot) => {
@@ -75,12 +73,29 @@ export const subscribeToKey = (key: string, callback: (data: any) => void) => {
   return unsubscribe;
 };
 
+// Helper to sanitize data for Firebase (converts undefined to null recursively)
+const sanitizeForFirebase = (data: any): any => {
+  if (data === undefined) return null;
+  if (data === null || typeof data !== 'object') return data;
+  
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirebase(item));
+  }
+  
+  const sanitized: any = {};
+  for (const [key, value] of Object.entries(data)) {
+    sanitized[key] = sanitizeForFirebase(value);
+  }
+  return sanitized;
+};
+
 // Helper to save data to Firebase
 const saveToFirebase = async (key: string, data: any) => {
-  dbCache[key] = data;
+  const sanitizedData = sanitizeForFirebase(data);
+  dbCache[key] = sanitizedData;
   isSyncing = true;
   try {
-    await set(ref(db, key), data);
+    await set(ref(db, key), sanitizedData);
     lastSyncTime = Date.now();
   } catch (e) {
     console.error(`Error saving ${key} to Firebase:`, e);
@@ -280,9 +295,36 @@ export const registerUser = async (userData: Omit<User, 'role' | 'temp_access_un
 };
 
 export const updateUser = async (userId: string, updates: Partial<User>) => {
-  const users = getStoredUsers();
-  const updated = users.map(u => u.id === userId ? { ...u, ...updates } : u);
-  await saveUsers(updated);
+  // Convert undefined to null for Firebase compatibility (Firebase doesn't allow undefined)
+  const sanitizedUpdates = Object.entries(updates).reduce((acc, [key, value]) => {
+    acc[key] = value === undefined ? null : value;
+    return acc;
+  }, {} as any);
+
+  try {
+    const usersRef = ref(db, USERS_KEY);
+    const result = await runTransaction(usersRef, (currentUsers) => {
+      if (!currentUsers) return [];
+      
+      // Ensure currentUsers is an array (Firebase might return an object if keys are non-sequential, but USERS_KEY is expected to be an array)
+      const usersArray = Array.isArray(currentUsers) ? currentUsers : Object.values(currentUsers);
+      
+      const index = usersArray.findIndex((u: any) => u && u.id === userId);
+      if (index !== -1) {
+        // Merge updates and ensure no undefined values in the final object
+        const updatedUser = { ...usersArray[index], ...sanitizedUpdates };
+        usersArray[index] = updatedUser;
+      }
+      return sanitizeForFirebase(usersArray);
+    });
+
+    if (result.committed) {
+      console.log(`Successfully updated user ${userId} via transaction`);
+    }
+  } catch (e) {
+    console.error(`Error updating user ${userId}:`, e);
+    throw e;
+  }
 };
 
 export const deleteUser = async (userId: string): Promise<boolean> => {
@@ -295,6 +337,7 @@ export const deleteUser = async (userId: string): Promise<boolean> => {
 
 export const isAccessAllowed = (user: User, vacationOverride?: VacationPeriod, scheduleOverride?: RehearsalSchedule[]): { allowed: boolean; reason?: string } => {
   const now = new Date();
+  const nowTime = now.getTime();
   const day = now.getDay();
   const hour = now.getHours();
   const minute = now.getMinutes();
@@ -302,16 +345,16 @@ export const isAccessAllowed = (user: User, vacationOverride?: VacationPeriod, s
   
   if (user.role === 'admin') return { allowed: true, reason: 'Admin Privilege' };
 
-  // Check temporary main access
+  // 1. Check temporary main access
   if (user.temp_access_until) {
     try {
       const until = new Date(user.temp_access_until);
       const from = user.temp_access_from ? new Date(user.temp_access_from) : null;
       
       if (!isNaN(until.getTime())) {
-        // Add a 10-second buffer for clock sync issues between admin and member devices
-        const isAfterFrom = !from || isNaN(from.getTime()) || now.getTime() >= (from.getTime() - 10000);
-        const isBeforeUntil = now < until;
+        // Add a 30-second buffer for clock sync issues
+        const isAfterFrom = !from || isNaN(from.getTime()) || nowTime >= (from.getTime() - 30000);
+        const isBeforeUntil = nowTime < (until.getTime() + 30000); // Also add buffer to end
         
         if (isAfterFrom && isBeforeUntil) {
           return { allowed: true, reason: 'Temp Access' };
@@ -322,11 +365,11 @@ export const isAccessAllowed = (user: User, vacationOverride?: VacationPeriod, s
     }
   }
 
-  // Check other parts access (if this is valid, the user should be allowed to enter the gateway)
+  // 2. Check other parts access
   if (user.other_parts_access_until) {
     try {
       const until = new Date(user.other_parts_access_until);
-      if (!isNaN(until.getTime()) && now < until) {
+      if (!isNaN(until.getTime()) && nowTime < (until.getTime() + 30000)) {
         return { allowed: true, reason: 'Other Parts Access' };
       }
     } catch (e) {
@@ -334,17 +377,20 @@ export const isAccessAllowed = (user: User, vacationOverride?: VacationPeriod, s
     }
   }
 
+  // 3. Check vacation period (Vacation blocks regular rehearsal time)
   const vacation = vacationOverride || getStoredVacationPeriod();
   if (vacation.isActive && vacation.startDate && vacation.endDate) {
     const start = new Date(vacation.startDate);
     start.setHours(0, 0, 0, 0);
     const end = new Date(vacation.endDate);
     end.setHours(23, 59, 59, 999);
-    if (now >= start && now <= end) {
+    
+    if (nowTime >= start.getTime() && nowTime <= end.getTime()) {
       return { allowed: false, reason: 'Vacation Period' };
     }
   }
 
+  // 4. Check regular rehearsal schedule
   const schedule = scheduleOverride || getStoredRehearsalSchedule();
   const isRehearsalTime = schedule.some(s => {
     if (s.dayOfWeek !== day) return false;

@@ -4,7 +4,7 @@ import { User, AuthState } from './types';
 import { 
   getStoredUsers, saveUsers, isAccessAllowed, getScoreForInstrument, 
   getInstrumentName, getStoredScores, getStoredInstruments, addAccessLog,
-  initDB, getSyncStatus, subscribeToKey
+  initDB, getSyncStatus, subscribeToKey, updateUser
 } from './db';
 import LoginPage from './components/LoginPage';
 import MemberDashboard from './components/MemberDashboard';
@@ -179,26 +179,18 @@ const App: React.FC = () => {
   };
 
   const extendAccess = async (userId: string) => {
-    const users = getStoredUsers();
     const now = new Date();
     const expiry = new Date(now.getTime() + 60 * 60 * 1000); // 1시간 연장
     
-    const updatedUsers = users.map(u => 
-      u.id === userId ? { 
-        ...u, 
+    try {
+      await updateUser(userId, { 
         temp_access_from: now.toISOString(),
         temp_access_until: expiry.toISOString() 
-      } : u
-    );
-    
-    await saveUsers(updatedUsers);
-    
-    if (auth.user?.id === userId) {
-      const updatedUser = updatedUsers.find(u => u.id === userId);
-      if (updatedUser) {
-        setAuth(prev => ({ ...prev, user: updatedUser }));
-        localStorage.setItem('orchestra_session', JSON.stringify(updatedUser));
-      }
+      });
+      // State will be updated via real-time subscription
+    } catch (err) {
+      console.error("Failed to extend access:", err);
+      alert("권한 연장에 실패했습니다.");
     }
   };
 
