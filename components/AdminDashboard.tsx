@@ -6,7 +6,7 @@ import {
   isAccessAllowed, getStoredAnnouncements, saveAnnouncements,
   getStoredInstruments, getStoredTranslations, addInstrument, deleteInstrument,
   saveUsers, getStoredRehearsalSchedule, saveRehearsalSchedule, getStoredVacationPeriod, saveVacationPeriod,
-  getStoredAccessLogs, saveAccessLogs, getInstrumentName
+  getStoredAccessLogs, saveAccessLogs, getInstrumentName, subscribeToKey
 } from '../db';
 import { formatDateWithDay, formatDateOnly, formatDateFilter, formatTimeOnly, formatTimeFilter, getDayOfWeek } from '../utils/dateUtils';
 import { 
@@ -80,28 +80,29 @@ const AdminDashboard: React.FC<Props> = ({ onExtendAccess, adminUser }) => {
   const [logFilterInstrument, setLogFilterInstrument] = useState('All');
 
   useEffect(() => {
-    loadData();
+    const unsubUsers = subscribeToKey('users', setUsers);
+    const unsubScores = subscribeToKey('scores', setScores);
+    const unsubAnnouncements = subscribeToKey('announcements', setAnnouncements);
+    const unsubInstruments = subscribeToKey('instruments', setInstruments);
+    const unsubTranslations = subscribeToKey('translations', setTranslations);
+    const unsubSchedule = subscribeToKey('rehearsal_schedule', setRehearsalSchedule);
+    const unsubVacation = subscribeToKey('vacation_period', setVacationPeriod);
+    const unsubLogs = subscribeToKey('access_logs', setAccessLogs);
+
+    return () => {
+      unsubUsers();
+      unsubScores();
+      unsubAnnouncements();
+      unsubInstruments();
+      unsubTranslations();
+      unsubSchedule();
+      unsubVacation();
+      unsubLogs();
+    };
   }, []);
 
   const loadData = async () => {
-    const [u, s, a, i, t, rs, vp, al] = await Promise.all([
-      getStoredUsers(),
-      getStoredScores(),
-      getStoredAnnouncements(),
-      getStoredInstruments(),
-      getStoredTranslations(),
-      getStoredRehearsalSchedule(),
-      getStoredVacationPeriod(),
-      getStoredAccessLogs()
-    ]);
-    setUsers(u);
-    setScores(s);
-    setAnnouncements(a);
-    setInstruments(i);
-    setTranslations(t);
-    setRehearsalSchedule(rs);
-    setVacationPeriod(vp);
-    setAccessLogs(al);
+    // Subscriptions handle state updates
   };
 
   const handleAddSchedule = async () => {

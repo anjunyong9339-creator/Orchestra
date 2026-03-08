@@ -1,7 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Announcement, RehearsalSchedule, VacationPeriod } from '../types';
-import { getInstrumentName, getStoredAnnouncements, getStoredRehearsalSchedule, getStoredVacationPeriod } from '../db';
+import { 
+  getInstrumentName, getStoredAnnouncements, getStoredRehearsalSchedule, 
+  getStoredVacationPeriod, subscribeToKey 
+} from '../db';
 import { formatDateWithDay, formatDateOnly } from '../utils/dateUtils';
 import { Clock, ExternalLink, Calendar, ShieldCheck, Settings, Megaphone, ChevronRight, Info, ShieldAlert, Coffee } from 'lucide-react';
 
@@ -17,17 +20,15 @@ const MemberDashboard: React.FC<Props> = ({ user, onOpenScores, onGoToAdmin }) =
   const [vacation, setVacation] = useState<VacationPeriod>({ startDate: '', endDate: '', isActive: false });
 
   useEffect(() => {
-    const loadData = async () => {
-      const [a, s, v] = await Promise.all([
-        getStoredAnnouncements(),
-        getStoredRehearsalSchedule(),
-        getStoredVacationPeriod()
-      ]);
-      setAnnouncements(a);
-      setSchedule(s);
-      setVacation(v);
+    const unsubAnnouncements = subscribeToKey('announcements', setAnnouncements);
+    const unsubSchedule = subscribeToKey('rehearsal_schedule', setSchedule);
+    const unsubVacation = subscribeToKey('vacation_period', setVacation);
+
+    return () => {
+      unsubAnnouncements();
+      unsubSchedule();
+      unsubVacation();
     };
-    loadData();
   }, []);
 
   const [instrumentName, setInstrumentName] = useState(user.instrument);
@@ -182,6 +183,12 @@ const MemberDashboard: React.FC<Props> = ({ user, onOpenScores, onGoToAdmin }) =
                   {isVacation && (
                     <p className="text-blue-400 text-[10px] mt-2 font-medium italic">* 방학 기간 중 관리자 특별 승인됨</p>
                   )}
+                </div>
+              ) : user.other_parts_access_until && new Date(user.other_parts_access_until) > new Date() ? (
+                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
+                  <p className="text-emerald-800 font-semibold mb-1">활성: 타 파트 악보 열람 권한</p>
+                  <p className="text-emerald-600 text-sm">유효 기간: {formatDateWithDay(user.other_parts_access_until)}</p>
+                  <p className="text-emerald-500 text-[10px] mt-1 font-medium italic">* {user.allowed_other_parts?.length || 0}개 파트의 악보를 열람할 수 있습니다.</p>
                 </div>
               ) : isVacation ? (
                 <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3">

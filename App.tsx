@@ -4,7 +4,7 @@ import { User, AuthState } from './types';
 import { 
   getStoredUsers, saveUsers, isAccessAllowed, getScoreForInstrument, 
   getInstrumentName, getStoredScores, getStoredInstruments, addAccessLog,
-  initDB, getSyncStatus
+  initDB, getSyncStatus, subscribeToKey
 } from './db';
 import LoginPage from './components/LoginPage';
 import MemberDashboard from './components/MemberDashboard';
@@ -29,20 +29,41 @@ const App: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState(getSyncStatus());
 
   useEffect(() => {
+    let unsubUsers: (() => void) | null = null;
+    let unsubVacation: (() => void) | null = null;
+    let unsubSchedule: (() => void) | null = null;
+
     const initialize = async () => {
       await initDB();
-      const savedSession = localStorage.getItem('orchestra_session');
-      if (savedSession) {
-        const user = JSON.parse(savedSession);
-        // Refresh user data from server to ensure session is still valid/updated
-        const users = getStoredUsers();
-        const updatedUser = users.find(u => u.id === user.id);
-        if (updatedUser) {
-          setAuth({ user: updatedUser, isAuthenticated: true });
-        } else {
-          localStorage.removeItem('orchestra_session');
+      
+      // Global subscriptions to keep dbCache fresh for isAccessAllowed and handleLogin
+      unsubUsers = subscribeToKey('users', (users: User[]) => {
+        if (users) {
+          // If logged in, update the current auth user state
+          const savedSession = localStorage.getItem('orchestra_session');
+          if (savedSession) {
+            const sessionUser = JSON.parse(savedSession);
+            const updatedUser = users.find(u => u.id === sessionUser.id);
+            if (updatedUser) {
+              setAuth(prev => ({ ...prev, user: updatedUser, isAuthenticated: true }));
+              localStorage.setItem('orchestra_session', JSON.stringify(updatedUser));
+            } else {
+              // User might have been deleted by admin
+              setAuth({ user: null, isAuthenticated: false });
+              localStorage.removeItem('orchestra_session');
+            }
+          }
         }
-      }
+      });
+
+      unsubVacation = subscribeToKey('vacation_period', () => {
+        // Just subscribing updates dbCache automatically
+      });
+
+      unsubSchedule = subscribeToKey('rehearsal_schedule', () => {
+        // Just subscribing updates dbCache automatically
+      });
+
       setIsLoading(false);
     };
     initialize();
@@ -50,8 +71,16 @@ const App: React.FC = () => {
     const syncInterval = setInterval(() => {
       setSyncStatus(getSyncStatus());
     }, 1000);
-    return () => clearInterval(syncInterval);
+
+    return () => {
+      clearInterval(syncInterval);
+      if (unsubUsers) unsubUsers();
+      if (unsubVacation) unsubVacation();
+      if (unsubSchedule) unsubSchedule();
+    };
   }, []);
+
+  // Removed setupUserListener as it's now handled by the global users subscription
 
   if (isLoading) {
     return (

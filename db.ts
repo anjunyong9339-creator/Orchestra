@@ -44,6 +44,7 @@ const DEFAULT_TRANSLATIONS: Record<string, string> = {
 let dbCache: Record<string, any> = {};
 let isSyncing = false;
 let lastSyncTime = 0;
+let listeners: Record<string, () => void> = {};
 
 // Helper to fetch data from Firebase
 const fetchFromFirebase = async (key: string) => {
@@ -58,6 +59,20 @@ const fetchFromFirebase = async (key: string) => {
     console.error(`Error fetching ${key} from Firebase:`, e);
   }
   return dbCache[key];
+};
+
+// Real-time listener setup
+import { onValue } from "firebase/database";
+
+export const subscribeToKey = (key: string, callback: (data: any) => void) => {
+  const dbRef = ref(db, key);
+  const unsubscribe = onValue(dbRef, (snapshot) => {
+    const data = snapshot.val();
+    dbCache[key] = data;
+    callback(data);
+  });
+  listeners[key] = unsubscribe;
+  return unsubscribe;
 };
 
 // Helper to save data to Firebase
@@ -278,7 +293,7 @@ export const deleteUser = async (userId: string): Promise<boolean> => {
   return true;
 };
 
-export const isAccessAllowed = (user: User): { allowed: boolean; reason?: string } => {
+export const isAccessAllowed = (user: User, vacationOverride?: VacationPeriod, scheduleOverride?: RehearsalSchedule[]): { allowed: boolean; reason?: string } => {
   const now = new Date();
   const day = now.getDay();
   const hour = now.getHours();
@@ -287,13 +302,15 @@ export const isAccessAllowed = (user: User): { allowed: boolean; reason?: string
   
   if (user.role === 'admin') return { allowed: true, reason: 'Admin Privilege' };
 
+  // Check temporary main access
   if (user.temp_access_until) {
     try {
       const until = new Date(user.temp_access_until);
       const from = user.temp_access_from ? new Date(user.temp_access_from) : null;
       
       if (!isNaN(until.getTime())) {
-        const isAfterFrom = !from || isNaN(from.getTime()) || now >= from;
+        // Add a 10-second buffer for clock sync issues between admin and member devices
+        const isAfterFrom = !from || isNaN(from.getTime()) || now.getTime() >= (from.getTime() - 10000);
         const isBeforeUntil = now < until;
         
         if (isAfterFrom && isBeforeUntil) {
@@ -305,7 +322,19 @@ export const isAccessAllowed = (user: User): { allowed: boolean; reason?: string
     }
   }
 
-  const vacation = getStoredVacationPeriod();
+  // Check other parts access (if this is valid, the user should be allowed to enter the gateway)
+  if (user.other_parts_access_until) {
+    try {
+      const until = new Date(user.other_parts_access_until);
+      if (!isNaN(until.getTime()) && now < until) {
+        return { allowed: true, reason: 'Other Parts Access' };
+      }
+    } catch (e) {
+      console.error('Error parsing other parts access date:', e);
+    }
+  }
+
+  const vacation = vacationOverride || getStoredVacationPeriod();
   if (vacation.isActive && vacation.startDate && vacation.endDate) {
     const start = new Date(vacation.startDate);
     start.setHours(0, 0, 0, 0);
@@ -316,7 +345,7 @@ export const isAccessAllowed = (user: User): { allowed: boolean; reason?: string
     }
   }
 
-  const schedule = getStoredRehearsalSchedule();
+  const schedule = scheduleOverride || getStoredRehearsalSchedule();
   const isRehearsalTime = schedule.some(s => {
     if (s.dayOfWeek !== day) return false;
     return currentTimeStr >= s.startTime && currentTimeStr < s.endTime;
